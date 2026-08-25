@@ -153,7 +153,8 @@ class CronReadinessTests(unittest.TestCase):
             ROOT
             / "image/runtime/etc/systemd/system/openclaw-ephemeral-schedule.service"
         ).read_text(encoding="utf-8")
-        self.assertIn("Requires=openclaw.service", unit)
+        self.assertNotIn("Requires=openclaw.service", unit)
+        self.assertIn("After=openclaw.service", unit)
         self.assertNotIn("Wants=", unit)
         for service in (
             "codeanalyst.service",

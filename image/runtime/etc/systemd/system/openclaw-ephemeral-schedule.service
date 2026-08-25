@@ -1,6 +1,5 @@
 [Unit]
 Description=Integrate final OpenClaw repository schedules
-Requires=openclaw.service
 After=openclaw.service
 After=citadel.service codeanalyst.service
 After=kachelmann-webui.service kachelmann-mcp.service
