@@ -693,6 +693,7 @@ def build_config(
         config["models"] = custom_models
     config.update(_hooks_config(environ))
     config.update(_telegram_config(telegram_accounts))
+    config.setdefault("commands", {})["mcp"] = True
     return config, primary_model, note_full_mode
 
 
