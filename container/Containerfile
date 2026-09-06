@@ -1,16 +1,16 @@
 # The runtime base deliberately stays fixed across openclaw-ephemeral releases.
-FROM ghcr.io/openclaw/openclaw:2026.7.1
+FROM ghcr.io/openclaw/openclaw:2026.9.2
 
-ARG OPENCLAW_VERSION=2026.7.1
-ARG OPENCLAW_DETERMINISTIC_TAG=2026.7.1-deterministic.1
-ARG OPENCLAW_DETERMINISTIC_ASSET=openclaw-2026.7.1-deterministic.tar.gz
-ARG OPENCLAW_DETERMINISTIC_SHA256=c81e4482151ad1be347f630d5ab779e1fa9f6c05a34bb6f026282dd8427db5c8
+ARG OPENCLAW_VERSION=2026.9.2
+ARG OPENCLAW_DETERMINISTIC_TAG=2026.9.2-deterministic.2
+ARG OPENCLAW_DETERMINISTIC_ASSET=openclaw-2026.9.2-deterministic.tar.gz
+ARG OPENCLAW_DETERMINISTIC_SHA256
 ARG NOTE_RELEASE_TAG=2026.7.36
 ARG NOTE_RELEASE_SHA256=2d3a4bff771e9dd85b6d39c0a1bb63dd68f99f65d73c6d2caae29eb65a6ba26b
 
 LABEL org.opencontainers.image.title="openclaw-ephemeral" \
       org.opencontainers.image.description="OpenClaw with the deterministic patch, NOTE, and a fresh environment-derived configuration at every start." \
-      org.opencontainers.image.source="https://github.com/safrano9999/openclaw-ephemeral" \
+      org.opencontainers.image.source="https://github.com/safrano9999/openclaw-ephemeral-newest" \
       org.opencontainers.image.version="${OPENCLAW_VERSION}" \
       io.safrano9999.openclaw.version="${OPENCLAW_VERSION}" \
       io.safrano9999.openclaw-deterministic.release="${OPENCLAW_DETERMINISTIC_TAG}" \

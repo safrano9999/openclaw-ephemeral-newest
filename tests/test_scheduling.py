@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import sqlite3
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +15,7 @@ from openclaw_ephemeral.scheduling import (
     CRON_COMMAND_TIMEOUT_SECONDS,
     LocalTime,
     _add_cron_job,
+    _approve_current_device,
     _list_cron_jobs,
     _remove_cron_job,
 )
@@ -21,6 +27,57 @@ ROOT = Path(__file__).resolve().parents[1]
 class CronReadinessTests(unittest.TestCase):
     def pairing_environment(self) -> dict[str, str]:
         return {"OPENCLAW_DEVICE_BOOTSTRAP_MODULE": str(Path(__file__).resolve())}
+
+    @unittest.skipUnless(shutil.which("node"), "Node is needed for the pairing bridge")
+    def test_pairing_uses_only_current_sqlite_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            state = root / "state"
+            state.mkdir()
+            with sqlite3.connect(state / "openclaw.sqlite") as database:
+                database.execute(
+                    "CREATE TABLE device_identities (identity_key TEXT, device_id TEXT)"
+                )
+                database.execute(
+                    "INSERT INTO device_identities VALUES ('primary', 'current-device')"
+                )
+            module = root / "bootstrap.mjs"
+            module.write_text('''
+import fs from "node:fs";
+export async function listDevicePairing() {
+  return { pending: [
+    { deviceId: "another-device", requestId: "unrelated" },
+    { deviceId: "current-device", requestId: "current" },
+    { deviceId: "override-device", requestId: "override" },
+  ] };
+}
+export async function approveDevicePairing(requestId, options) {
+  fs.appendFileSync(process.env.TEST_APPROVAL_OUTPUT, JSON.stringify({ requestId, options }) + "\\n");
+}
+''', encoding="utf-8")
+            output = root / "approval.json"
+            environ = {
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": raw,
+                "OPENCLAW_STATE_DIR": raw,
+                "OPENCLAW_DEVICE_BOOTSTRAP_MODULE": str(module),
+                "TEST_APPROVAL_OUTPUT": str(output),
+            }
+            legacy = root / "identity" / "device.json"
+            legacy.parent.mkdir()
+            legacy.write_text('{"deviceId":"another-device"}', encoding="utf-8")
+            _approve_current_device(environ, runner=subprocess.run)
+            override = root / "explicit-identity.json"
+            override.write_text('{"deviceId":"override-device"}', encoding="utf-8")
+            _approve_current_device(
+                {**environ, "OPENCLAW_DEVICE_IDENTITY": str(override)}, runner=subprocess.run,
+            )
+            approvals = [json.loads(line) for line in output.read_text().splitlines()]
+            self.assertEqual([row["requestId"] for row in approvals], ["current", "override"])
+            for approval in approvals:
+                self.assertEqual(approval["options"]["callerScopes"], [
+                    "operator.admin", "operator.pairing", "operator.read", "operator.write",
+                ])
 
     def test_lists_once_after_systemd_readiness(self) -> None:
         calls = []

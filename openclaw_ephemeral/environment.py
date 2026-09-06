@@ -154,6 +154,13 @@ def agent_dir_path(environ: Mapping[str, str], destination: Path) -> Path:
     return _expand_injected_path(raw, environ)
 
 
+def state_dir_path(environ: Mapping[str, str], destination: Path) -> Path:
+    """Resolve the persistent shared-state root without reading the config."""
+
+    raw = first_value(environ, "OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_DIR")
+    return _expand_injected_path(raw, environ) if raw else destination.parent
+
+
 def openclaw_command(environ: Mapping[str, str]) -> list[str]:
     """Return the configured OpenClaw CLI command as an argument vector."""
 

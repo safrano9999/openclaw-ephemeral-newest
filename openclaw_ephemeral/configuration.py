@@ -23,6 +23,7 @@ from .environment import (
     integer,
     openclaw_command,
     secret_ref,
+    state_dir_path,
     workspace_path,
     without_secret_values,
 )
@@ -707,22 +708,30 @@ def configure(
 
     injected = expand_api_key_aliases(os.environ if environ is None else environ)
     destination = config_path(injected)
+    discovered_plugins, plugin_warnings = discover_openclaw_plugins(
+        injected,
+        destination=destination,
+    )
     native_models, native_warnings = discover_native_models(
         injected,
         runner=runner,
+        plugins=discovered_plugins,
     )
-    auth_db = destination.parent / "agents/main/agent/openclaw-agent.sqlite"
-    if auth_db.is_file() and auth_db.stat().st_size:
+    # Shared OAuth moved to state/openclaw.sqlite; agent-local overrides remain.
+    # Keep the runtime-discovered OpenAI catalog visible without reading secrets.
+    state_root = state_dir_path(injected, destination)
+    auth_databases = (
+        agent_dir_path(injected, destination) / "openclaw-agent.sqlite",
+        state_root / "agents" / "main" / "agent" / "openclaw-agent.sqlite",
+        state_root / "state" / "openclaw.sqlite",
+    )
+    if any(path.is_file() and path.stat().st_size for path in auth_databases):
         native_models = tuple(sorted({*native_models, "openai/*"}))
     providers, openai_warnings = discover_openai_v1_providers(
         injected,
         opener=opener,
     )
     mcp_servers = discover_mcp_servers(injected)
-    discovered_plugins, plugin_warnings = discover_openclaw_plugins(
-        injected,
-        destination=destination,
-    )
     # Validate the two explicit repository selections while the complete final
     # image is visible. The actual gateway-side scheduling happens later.
     build_schedule_plan(injected, discovered_plugins)

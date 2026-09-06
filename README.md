@@ -38,6 +38,19 @@ load paths and entries; duplicate plugin ids keep the first root in discovery
 order. This final-image scan also sees plugins contributed by the topmost image
 layer.
 
+On OpenClaw 2026.9.2, managed npm/ClawHub plugin paths are also read from the
+SQLite installed-plugin ledger. Only its recorded package roots are scanned;
+unrelated `node_modules` trees are not searched. The ledger is not rewritten or
+copied into `openclaw.json`. Native provider discovery carries the discovered
+provider plugin paths into its isolated temporary configuration.
+
+Existing state must complete OpenClaw's explicit Doctor migrations before
+startup. In particular, retired `exec-approvals.json` blocks approval commands
+until `openclaw doctor --fix` imports or reconciles it with SQLite. This runtime
+does not run Doctor automatically. The trusted policy command continues to
+update OpenClaw's canonical approval store; inspect its effective behavior with
+`openclaw exec-policy show --json`.
+
 Only `run` scans runtime hooks:
 
 ```text
@@ -139,32 +152,36 @@ device identity and then retries.
 
 ## Tests
 
+The pairing-bridge test uses Node.js 24, matching the OpenClaw runtime.
+
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
 ## Optional container image
 
-[![GHCR](https://img.shields.io/badge/GHCR-openclaw--ephemeral-0ea5e9)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral)
-[![Image tags](https://img.shields.io/badge/image-tags-2563eb)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral)
-[![Deterministic source](https://img.shields.io/badge/source-openclaw--deterministic-111827)](https://github.com/safrano9999/openclaw-deterministic)
+[![GHCR](https://img.shields.io/badge/GHCR-openclaw--ephemeral--latest-0ea5e9)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest)
+[![Image tags](https://img.shields.io/badge/image-tags-2563eb)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest)
+[![Deterministic source](https://img.shields.io/badge/source-openclaw--deterministic--newest-111827)](https://github.com/safrano9999/openclaw-deterministic-newest)
 [![Release overview](https://img.shields.io/badge/release-overview-7c3aed)](RELEASE.md)
 
 The image definition and its build/runtime helpers live in `container/`. The
 repository root remains the build context so the Containerfile can copy the
 unchanged Python package and launcher.
 
-The published image is
-[`ghcr.io/safrano9999/openclaw-ephemeral`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral).
-It combines these pinned components:
+The optional image target is
+[`ghcr.io/safrano9999/openclaw-ephemeral-latest`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest).
+This migration does not build or publish it. Its pinned components are:
 
-- `ghcr.io/openclaw/openclaw:2026.7.1`
-- [`openclaw-deterministic` release `2026.7.1-deterministic.2`](https://github.com/safrano9999/openclaw-deterministic/releases/tag/2026.7.1-deterministic.2)
+- `ghcr.io/openclaw/openclaw:2026.9.2`
+- [`openclaw-deterministic-newest` release `2026.9.2-deterministic.2`](https://github.com/safrano9999/openclaw-deterministic-newest/releases/tag/2026.9.2-deterministic.2)
 - [NOTE release ZIP `2026.7.36`](https://github.com/safrano9999/NOTE/releases/tag/2026.7.36)
 - this repository's environment-driven Python runtime
 
 The external archives are downloaded from their pinned releases and verified
-by SHA-256. They are not vendored here. The image defaults to `dummy/note`;
+by SHA-256. The build requires `OPENCLAW_DETERMINISTIC_SHA256` from the verified
+new release; no previous release digest is reused. The archives are not
+vendored here. The image defaults to `dummy/note`;
 `dummy/dummy`, native providers, and OpenAI-v1 compatible providers remain
 available.
 
@@ -209,12 +226,12 @@ an ordinary non-command message without an LLM request and return it through
 The NOTE screenshot was captured on OpenClaw `2026.6.11` and illustrates the
 workflow rather than the current pinned build.
 
-## Pull the optional image
+## Pull the optional image after publication
 
 ```bash
-docker pull ghcr.io/safrano9999/openclaw-ephemeral:latest
+docker pull ghcr.io/safrano9999/openclaw-ephemeral-latest:latest
 ```
 
 ```bash
-podman pull ghcr.io/safrano9999/openclaw-ephemeral:latest
+podman pull ghcr.io/safrano9999/openclaw-ephemeral-latest:latest
 ```

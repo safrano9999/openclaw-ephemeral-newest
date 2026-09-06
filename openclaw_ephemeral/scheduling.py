@@ -36,20 +36,31 @@ TIME_SPEC = re.compile(
 PAIR_CURRENT_DEVICE_SOURCE = r"""
 import fs from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 
 const stateDir = process.env.OPENCLAW_STATE_DIR
   || process.env.OPENCLAW_CONFIG_DIR
   || path.join(process.env.HOME || "/root", ".openclaw");
-const identityPath = process.env.OPENCLAW_DEVICE_IDENTITY
-  || path.join(stateDir, "identity", "device.json");
 const modulePath = process.argv[1];
 const bootstrap = await import(
   modulePath.startsWith("file:") ? modulePath : pathToFileURL(modulePath).href
 );
-const identity = JSON.parse(fs.readFileSync(identityPath, "utf8"));
+let deviceId;
+if (process.env.OPENCLAW_DEVICE_IDENTITY) {
+  deviceId = JSON.parse(fs.readFileSync(process.env.OPENCLAW_DEVICE_IDENTITY, "utf8")).deviceId;
+} else {
+  // v2026.9.2 stores the CLI identity in SQLite. Read only its public id.
+  const database = new DatabaseSync(path.join(stateDir, "state", "openclaw.sqlite"), { readOnly: true });
+  try {
+    deviceId = database.prepare("SELECT device_id FROM device_identities WHERE identity_key = 'primary'").get()?.device_id;
+  } finally {
+    database.close();
+  }
+}
+if (!deviceId) throw new Error("The current OpenClaw device identity is missing");
 const { pending } = await bootstrap.listDevicePairing();
-for (const request of pending.filter((item) => item.deviceId === identity.deviceId)) {
+for (const request of pending.filter((item) => item.deviceId === deviceId)) {
   await bootstrap.approveDevicePairing(request.requestId, {
     callerScopes: [
       "operator.admin",

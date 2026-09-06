@@ -20,6 +20,7 @@ from .environment import (
     openclaw_command,
     secret_ref,
 )
+from .plugins import OpenClawPlugin
 
 
 MAX_DISCOVERY_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -143,10 +144,12 @@ def discover_native_models(
     *,
     runner: Callable[..., Any] = subprocess.run,
     timeout: float | None = None,
+    plugins: Sequence[OpenClawPlugin] = (),
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Use OpenClaw itself to map injected *_API_KEY variables to models.
 
-    The command receives a new temporary HOME, state directory, and empty config.
+    The command receives a new temporary HOME, state directory, and fresh config
+    containing only the discovered provider plugins' public paths and ids.
     It therefore cannot read or migrate the destination config or any prior
     OpenClaw state.
     """
@@ -173,7 +176,15 @@ def discover_native_models(
         state.mkdir(mode=0o700)
         home.mkdir(mode=0o700)
         scratch_config = state / "openclaw.json"
-        scratch_config.write_text("{}\n", encoding="utf-8")
+        provider_plugins = [
+            plugin for plugin in plugins
+            if plugin.manifest.get("providers") or plugin.manifest.get("modelCatalog")
+        ]
+        scratch_payload = {"plugins": {
+            "load": {"paths": [str(plugin.path) for plugin in provider_plugins]},
+            "entries": {plugin.plugin_id: {"enabled": True} for plugin in provider_plugins},
+        }} if provider_plugins else {}
+        scratch_config.write_text(json.dumps(scratch_payload) + "\n", encoding="utf-8")
 
         isolated = dict(environ)
         isolated.update(
@@ -213,8 +224,8 @@ def discover_native_models(
                 if provider and source in sources:
                     providers.add(provider)
 
-        # OpenClaw 2026.7.1 does not consistently advertise this provider in
-        # status output, although its model catalog recognizes the env key.
+        # Preserve discovery for the existing Sakana credential interface when
+        # the installed provider is not advertised by status output.
         if clean(environ.get("SAKANA_API_KEY")):
             providers.add("sakana")
 
@@ -230,12 +241,16 @@ def discover_native_models(
                 runner=runner,
                 timeout=command_timeout,
             )
-            for row in _catalog_rows(catalog):
-                if row.get("available") is not True or row.get("missing") is not False:
-                    continue
-                key = _model_key(row, provider)
-                if key:
-                    models.add(key)
+            available_models = {
+                _model_key(row, provider)
+                for row in _catalog_rows(catalog)
+                if row.get("available") is True and row.get("missing") is False
+            } - {""}
+            models.update(available_models)
+            if not available_models:
+                warnings.append(
+                    f"OpenClaw did not discover available models for provider {provider}"
+                )
 
     return tuple(sorted(models)), tuple(warnings)
 

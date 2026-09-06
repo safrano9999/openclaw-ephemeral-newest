@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from openclaw_ephemeral.environment import ConfigurationError
+from openclaw_ephemeral.plugins import OpenClawPlugin
 from openclaw_ephemeral.providers import (
     OpenAIV1Provider,
     discover_native_models,
@@ -175,6 +177,69 @@ class NativeProviderDiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(models, ())
         self.assertTrue(warnings)
+
+    def test_empty_native_catalog_reports_provider_without_command_output(self) -> None:
+        def runner(command: list[str], **_kwargs: Any) -> Completed:
+            if "status" in command:
+                return Completed(stdout=json.dumps({"auth": {"providers": [{
+                    "provider": "openai", "env": {"source": "env: OPENAI_API_KEY"},
+                }]}}))
+            return Completed(returncode=1, stderr="must-not-leak")
+
+        models, warnings = discover_native_models(
+            {"OPENAI_API_KEY": "must-not-leak"}, runner=runner,
+        )
+        self.assertEqual(models, ())
+        self.assertTrue(warnings)
+        self.assertIn("openai", warnings[0])
+        self.assertNotIn("must-not-leak", str(warnings))
+
+    def test_existing_sakana_key_keeps_catalog_discovery(self) -> None:
+        def runner(command: list[str], **_kwargs: Any) -> Completed:
+            if "status" in command:
+                return Completed(stdout='{"auth":{"providers":[]}}')
+            self.assertEqual(command[command.index("--provider") + 1], "sakana")
+            return Completed(stdout=json.dumps({"models": [{
+                "key": "sakana/test-model", "available": True, "missing": False,
+            }]}))
+
+        models, warnings = discover_native_models(
+            {"SAKANA_API_KEY": "synthetic-key"}, runner=runner,
+        )
+        self.assertEqual(models, ("sakana/test-model",))
+        self.assertEqual(warnings, ())
+
+    def test_managed_provider_is_visible_inside_isolated_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "npm" / "node_modules" / "provider"
+            plugins = (OpenClawPlugin(
+                repository="provider", plugin_id="provider", path=path,
+                manifest={"providers": ["managed"]}, hook_path=None,
+            ),)
+
+            def runner(command: list[str], **kwargs: Any) -> Completed:
+                environment = kwargs["env"]
+                self.assertNotEqual(environment["HOME"], raw)
+                self.assertNotEqual(environment["OPENCLAW_STATE_DIR"], raw)
+                scratch = json.loads(Path(environment["OPENCLAW_CONFIG_PATH"]).read_text())
+                self.assertEqual(scratch, {"plugins": {
+                    "load": {"paths": [str(path)]},
+                    "entries": {"provider": {"enabled": True}},
+                }})
+                if "status" in command:
+                    return Completed(stdout=json.dumps({"auth": {"providers": [{
+                        "provider": "managed", "env": {"source": "env: MANAGED_API_KEY"},
+                    }]}}))
+                return Completed(stdout=json.dumps({"models": [{
+                    "key": "managed/model", "available": True, "missing": False,
+                }]}))
+
+            models, warnings = discover_native_models(
+                {"HOME": raw, "OPENCLAW_STATE_DIR": raw, "MANAGED_API_KEY": "synthetic"},
+                plugins=plugins, runner=runner,
+            )
+            self.assertEqual(models, ("managed/model",))
+            self.assertEqual(warnings, ())
 
     def test_no_keys_means_no_cli_process(self) -> None:
         def runner(_command: list[str], **_kwargs: Any) -> Completed:

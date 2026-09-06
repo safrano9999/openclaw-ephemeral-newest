@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .environment import ConfigurationError, clean, workspace_path
+from .environment import ConfigurationError, clean, state_dir_path, workspace_path
 
 
 MANIFEST_NAME = "openclaw.plugin.json"
@@ -50,6 +52,41 @@ def _path_list(raw: str) -> tuple[str, ...]:
     return tuple(values)
 
 
+def _managed_plugin_roots(state_dir: Path) -> tuple[str, ...]:
+    """Read exact install paths from OpenClaw's canonical public plugin ledger."""
+
+    database_path = state_dir / "state" / "openclaw.sqlite"
+    if not database_path.is_file():
+        return ()
+    try:
+        with closing(sqlite3.connect(database_path.resolve().as_uri() + "?mode=ro", uri=True)) as database:
+            if not database.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'config_machine_state'"
+            ).fetchone():
+                return ()
+            row = database.execute(
+                "SELECT value_json FROM config_machine_state WHERE state_key = ?",
+                ("plugins.installedIndex",),
+            ).fetchone()
+        if row is None:
+            return ()
+        records = json.loads(row[0])["index"]["installRecords"]
+        if not isinstance(records, dict):
+            raise ValueError("expected an install record map")
+        roots: list[str] = []
+        for record in records.values():
+            if not isinstance(record, dict):
+                raise ValueError("expected an install record")
+            install_path = record.get("installPath")
+            if install_path is not None:
+                if not isinstance(install_path, str) or not install_path.strip():
+                    raise ValueError("expected an install path")
+                roots.append(install_path)
+        return tuple(roots)
+    except (sqlite3.Error, ValueError, KeyError, TypeError) as exc:
+        raise ConfigurationError("cannot read OpenClaw installed-plugin metadata") from exc
+
+
 def plugin_roots(
     environ: Mapping[str, str],
     *,
@@ -62,15 +99,7 @@ def plugin_roots(
     if plugins_dir:
         raw_roots.append(plugins_dir)
 
-    configured_state = (
-        clean(environ.get("OPENCLAW_STATE_DIR"))
-        or clean(environ.get("OPENCLAW_CONFIG_DIR"))
-    )
-    state_extensions = (
-        Path(configured_state) / "extensions"
-        if configured_state
-        else destination.parent / "extensions"
-    )
+    state_extensions = state_dir_path(environ, destination) / "extensions"
     workspace_extensions = (
         workspace_path(environ, destination) / ".openclaw" / "extensions"
     )
@@ -81,6 +110,7 @@ def plugin_roots(
             str(workspace_extensions),
         )
     )
+    raw_roots.extend(_managed_plugin_roots(state_dir_path(environ, destination)))
 
     roots: list[Path] = []
     seen: set[Path] = set()

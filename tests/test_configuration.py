@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import stat
 import subprocess
 import tempfile
@@ -641,6 +642,47 @@ class CompleteConfigureTests(unittest.TestCase):
                 "openai/*",
                 written["agents"]["defaults"]["models"],
             )
+
+    def test_shared_or_custom_agent_auth_store_keeps_direct_models_visible(self) -> None:
+        for location in ("shared", "custom-agent", "legacy-main"):
+            with self.subTest(location=location), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                destination = root / "config" / "openclaw.json"
+                environ = {
+                    "HOME": raw,
+                    "OPENCLAW_CONFIG": str(destination),
+                    "OPENCLAW_STATE_DIR": str(root / "persistent-state"),
+                    "OPENCLAW_AGENT_DIR": str(root / "persistent-agent"),
+                    "OPENCLAW_MODEL": "litellm/chosen-model",
+                }
+                auth_db = {
+                    "shared": root / "persistent-state" / "state" / "openclaw.sqlite",
+                    "custom-agent": root / "persistent-agent" / "openclaw-agent.sqlite",
+                    "legacy-main": root / "persistent-state" / "agents" / "main" / "agent" / "openclaw-agent.sqlite",
+                }[location]
+                auth_db.parent.mkdir(parents=True)
+                with sqlite3.connect(auth_db) as database:
+                    database.execute("CREATE TABLE opaque_auth (value TEXT)")
+                    database.execute("INSERT INTO opaque_auth VALUES ('persisted-auth')")
+                original_auth = auth_db.read_bytes()
+                with (
+                    patch(
+                        "openclaw_ephemeral.configuration.discover_native_models",
+                        return_value=((), ()),
+                    ),
+                    patch(
+                        "openclaw_ephemeral.configuration.discover_openai_v1_providers",
+                        return_value=((), ()),
+                    ),
+                ):
+                    configure(environ)
+                written = json.loads(destination.read_text(encoding="utf-8"))
+                self.assertIn("openai/*", written["agents"]["defaults"]["models"])
+                self.assertEqual(
+                    written["agents"]["defaults"]["model"]["primary"],
+                    "litellm/chosen-model",
+                )
+                self.assertEqual(auth_db.read_bytes(), original_auth)
 
     def test_configure_replaces_destination_without_reading_or_merging_it(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
