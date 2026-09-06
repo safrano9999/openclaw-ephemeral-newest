@@ -171,6 +171,10 @@ class ConfigBuilderTests(unittest.TestCase):
                 {DUMMY_MODEL: {}, NOTE_MODEL: {}},
             )
             self.assertEqual(
+                config["agents"]["defaults"]["modelPolicy"]["allow"],
+                [DUMMY_MODEL, NOTE_MODEL],
+            )
+            self.assertEqual(
                 config["agents"]["defaults"]["model"]["primary"],
                 NOTE_MODEL,
             )
@@ -179,7 +183,7 @@ class ConfigBuilderTests(unittest.TestCase):
                 {"mode": "off"},
             )
             self.assertEqual(
-                config["agents"]["list"][0]["tools"],
+                config["agents"]["entries"]["main"]["tools"],
                 {"allow": ["*"], "deny": []},
             )
             self.assertEqual(
@@ -189,15 +193,15 @@ class ConfigBuilderTests(unittest.TestCase):
                     "fs": {"workspaceOnly": False},
                     "exec": {
                         "host": "gateway",
-                        "security": "full",
-                        "ask": "off",
+                        "mode": "full",
                         "applyPatch": {"workspaceOnly": False},
                     },
                 },
             )
-            main = config["agents"]["list"][0]
-            self.assertEqual(main["id"], "main")
-            self.assertTrue(main["default"])
+            self.assertNotIn("list", config["agents"])
+            main = config["agents"]["entries"]["main"]
+            self.assertNotIn("id", main)
+            self.assertNotIn("default", main)
             self.assertTrue(Path(main["workspace"]).is_dir())
             self.assertTrue(Path(main["agentDir"]).is_dir())
 
@@ -266,6 +270,27 @@ class ConfigBuilderTests(unittest.TestCase):
                 set(config["models"]["providers"]),
                 {"litellm", "second"},
             )
+            self.assertEqual(
+                config["agents"]["defaults"]["modelPolicy"]["allow"],
+                list(allowlist),
+            )
+
+    def test_bare_custom_primary_keeps_its_qualified_model_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            config, primary, _ = build_config(
+                {"HOME": raw, "OPENCLAW_MODEL": "selected"},
+                destination=Path(raw) / "openclaw.json",
+                openai_v1_providers=(provider(models=("selected", "other")),),
+            )
+
+        self.assertEqual(primary, "selected")
+        defaults = config["agents"]["defaults"]
+        self.assertEqual(defaults["model"]["primary"], "selected")
+        self.assertIn("selected", defaults["models"])
+        self.assertEqual(
+            defaults["modelPolicy"]["allow"],
+            [DUMMY_MODEL, NOTE_MODEL, "litellm/selected", "litellm/other"],
+        )
 
     def test_openclaw_model_overrides_openai_v1_default_and_is_allowlisted(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -365,7 +390,8 @@ class ConfigBuilderTests(unittest.TestCase):
                 gateway["auth"]["token"]["id"],
                 "OPENCLAW_GATEWAY_TOKEN",
             )
-            self.assertTrue(gateway["controlUi"]["allowInsecureAuth"])
+            self.assertNotIn("allowInsecureAuth", gateway["controlUi"])
+            self.assertNotIn("dangerouslyDisableDeviceAuth", gateway["controlUi"])
             self.assertEqual(
                 gateway["controlUi"]["allowedOrigins"],
                 ["https://control.example.test", "http://localhost:19000"],
@@ -411,18 +437,28 @@ class ConfigBuilderTests(unittest.TestCase):
                         "agentId": "auto",
                         "match": {"channel": "telegram", "accountId": "auto"},
                     },
+                    {
+                        "agentId": "main",
+                        "match": {"channel": "telegram", "accountId": "*"},
+                    },
                 ],
             )
             self.assertEqual(
-                [agent["id"] for agent in config["agents"]["list"]],
+                list(config["agents"]["entries"]),
                 ["main", "auto"],
             )
             self.assertTrue(
                 all(
                     agent["tools"] == {"allow": ["*"], "deny": []}
-                    for agent in config["agents"]["list"]
+                    for agent in config["agents"]["entries"].values()
                 )
             )
+            self.assertEqual(config["agents"]["ownership"], "explicit")
+            self.assertEqual(
+                config["agents"]["defaults"]["systemAgent"], {"agentId": "main"}
+            )
+            self.assertNotIn("sessionStore", config["agents"]["defaults"])
+            self.assertEqual(config["talk"]["agentId"], "main")
             serialized = json.dumps(config)
             self.assertNotIn(secrets["gateway"], serialized)
             self.assertNotIn(secrets["hooks"], serialized)

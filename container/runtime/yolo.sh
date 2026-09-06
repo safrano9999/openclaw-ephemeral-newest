@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Synchronize the canonical host approval store, then normalize the requested config
-# policy in one validated write. The generated config intentionally starts in
-# the preset-compatible security/ask form so these are the only two CLI starts.
+# OpenClaw 2026.9.2 synchronizes the host approval store and canonical exec.mode
+# in this one command; the generator already uses that config form.
 openclaw exec-policy preset yolo
-openclaw config patch --stdin <<'JSON'
-{
-  "tools": {
-    "exec": {
-      "mode": "full",
-      "security": null,
-      "ask": null
-    }
-  }
-}
-JSON

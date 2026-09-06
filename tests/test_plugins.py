@@ -53,6 +53,11 @@ class ManagedPluginDiscoveryTests(unittest.TestCase):
 
             def runner(command, **_kwargs):
                 calls.append(command)
+                current = json.loads(destination.read_text(encoding="utf-8"))
+                # OpenClaw config writes persist keyed entries, never its internal list projection.
+                self.assertNotIn("list", current["agents"])
+                current["agents"]["entries"]["main"]["tools"] = {}
+                destination.write_text(json.dumps(current), encoding="utf-8")
                 return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
 
             result = configure({
@@ -73,7 +78,7 @@ class ManagedPluginDiscoveryTests(unittest.TestCase):
             self.assertNotIn("allow", config["plugins"])
             self.assertEqual(config["agents"]["defaults"]["model"]["primary"], "luna")
             self.assertTrue(config["commands"]["mcp"])
-            self.assertEqual(config["agents"]["list"][0]["tools"], {"allow": ["*"], "deny": []})
+            self.assertEqual(config["agents"]["entries"]["main"]["tools"], {"allow": ["*"], "deny": []})
             self.assertEqual(calls, [["openclaw", "plugins", "registry", "--refresh"]])
             self.assertEqual(database_path.read_bytes(), original_database)
 

@@ -358,8 +358,6 @@ def _gateway_config(
         "bind": "lan",
         "port": port,
         "controlUi": {
-            "dangerouslyDisableDeviceAuth": True,
-            "allowInsecureAuth": True,
             "allowedOrigins": origins,
         },
     }
@@ -452,9 +450,17 @@ def _main_agent_config(
         "workspace": str(workspace),
         "model": {"primary": primary_model},
         "models": model_allowlist,
+        # Bare primary names resolve through the qualified provider catalog; the
+        # explicit override policy accepts qualified refs and OpenRouter selectors.
+        "modelPolicy": {
+            "allow": [
+                model for model in model_allowlist
+                if "/" in model or model in {"openrouter:auto", "openrouter:free"}
+            ]
+        },
         "sandbox": {"mode": "off"},
     }
-    agents = []
+    agents = {}
     names = dict.fromkeys(
         ("main", *(account["agent"] for account in telegram_accounts))
     )
@@ -469,22 +475,21 @@ def _main_agent_config(
         )
         current_workspace.mkdir(parents=True, exist_ok=True)
         current_agent_dir.mkdir(parents=True, exist_ok=True)
-        agents.append(
-            {
-                "id": name,
-                "name": name,
-                "default": name == "main",
-                "workspace": str(current_workspace),
-                "agentDir": str(current_agent_dir),
-                "heartbeat": {
-                    "every": "360m",
-                    "target": "last",
-                    "directPolicy": "allow",
-                },
-                "tools": tools,
-            }
-        )
-    return {"defaults": defaults, "list": agents}
+        agents[name] = {
+            "name": name,
+            "workspace": str(current_workspace),
+            "agentDir": str(current_agent_dir),
+            "heartbeat": {
+                "every": "360m",
+                "target": "last",
+                "directPolicy": "allow",
+            },
+            "tools": tools,
+        }
+    if len(agents) > 1:
+        # Preserve the retired main default marker's ambient system owner.
+        defaults["systemAgent"] = {"agentId": "main"}
+    return {"ownership": "explicit", "defaults": defaults, "entries": agents}
 
 
 def _telegram_config(accounts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -530,19 +535,22 @@ def _telegram_config(accounts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         },
         "defaultAccount": default,
     }
+    bindings = [
+        {
+            "agentId": account["agent"],
+            "match": {"channel": "telegram", "accountId": account["agent"]},
+        }
+        for account in accounts
+    ]
+    if any(account["agent"] != "main" for account in accounts):
+        bindings.append({
+            "agentId": "main",
+            "match": {"channel": "telegram", "accountId": "*"},
+        })
     return {
         "channels": {"telegram": telegram},
         "commands": {"ownerAllowFrom": [f"telegram:{chat}" for chat in chats]},
-        "bindings": [
-            {
-                "agentId": account["agent"],
-                "match": {
-                    "channel": "telegram",
-                    "accountId": account["agent"],
-                },
-            }
-            for account in accounts
-        ],
+        "bindings": bindings,
     }
 
 
@@ -561,15 +569,14 @@ def _plugins_config(note_full_mode: bool) -> dict[str, Any]:
 
 
 def _trusted_container_tools() -> dict[str, Any]:
-    """Return the preset-compatible trusted policy before CLI normalization."""
+    """Return the trusted policy in OpenClaw's canonical config form."""
 
     return {
         "profile": "full",
         "fs": {"workspaceOnly": False},
         "exec": {
             "host": "gateway",
-            "security": "full",
-            "ask": "off",
+            "mode": "full",
             "applyPatch": {"workspaceOnly": False},
         },
     }
@@ -694,6 +701,8 @@ def build_config(
         config["models"] = custom_models
     config.update(_hooks_config(environ))
     config.update(_telegram_config(telegram_accounts))
+    if len(config["agents"]["entries"]) > 1:
+        config["talk"] = {"agentId": "main"}
     config.setdefault("commands", {})["mcp"] = True
     return config, primary_model, note_full_mode
 
@@ -781,7 +790,7 @@ def configure(
                 f"cannot refresh the OpenClaw plugin registry: {exc}"
             ) from exc
         config = json.loads(destination.read_text(encoding="utf-8"))
-        for agent in config["agents"]["list"]:
+        for agent in config["agents"]["entries"].values():
             agent["tools"] = {"allow": ["*"], "deny": []}
         atomic_write_json(destination, config)
 

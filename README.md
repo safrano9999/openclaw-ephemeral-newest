@@ -19,8 +19,8 @@ openclaw-ephemeral.py dispatch --repos WELCOME,NEXTCLOUD
 ```
 
 - `configure` writes a fresh configuration and applies the trusted runtime
-  policy. The policy uses one synchronized exec-approval preset and one
-  validated config patch instead of a sequence of path-based writes.
+  policy. OpenClaw's synchronized exec-policy preset updates both the config
+  and its canonical approval store in one command.
 - `run` configures OpenClaw, executes the lifecycle hooks, and starts the
   gateway.
 - `restart` configures OpenClaw and requests a gateway restart.
@@ -43,6 +43,14 @@ SQLite installed-plugin ledger. Only its recorded package roots are scanned;
 unrelated `node_modules` trees are not searched. The ledger is not rewritten or
 copied into `openclaw.json`. Native provider discovery carries the discovered
 provider plugin paths into its isolated temporary configuration.
+
+Generated configurations use keyed `agents.entries`, explicit model override
+allowlists in `agents.defaults.modelPolicy.allow`, and `tools.exec.mode=full`.
+The model metadata catalog and selected primary remain available, including
+bare model names resolved through configured provider catalogs. Multi-agent
+configurations retain `main` as the owner of system work and Talk, with the
+existing Telegram account routes and a `main` fallback. Session stores remain
+scoped to their agents.
 
 Existing state must complete OpenClaw's explicit Doctor migrations before
 startup. In particular, retired `exec-approvals.json` blocks approval commands
@@ -104,6 +112,12 @@ missing Cloudflare origin derived from `CITADEL_CLOUDFLARE_DOMAIN` when
 Cloudflare is enabled, plus current Tailscale DNS/IP origins for the internal
 and published gateway ports. At `0`, the CSV list remains exact.
 Unavailable or invalid automatic sources are silently skipped.
+
+OpenClaw 2026.9.2 removed the Control UI device-auth bypass settings. Browser
+clients use normal device pairing; the generated allowed origins still control
+which origins may connect. Open the Control UI and approve its pairing request
+through OpenClaw.
+The gateway token remains supported through `OPENCLAW_GATEWAY_TOKEN`.
 
 Optional global HTTP MCP servers use repeatable groups:
 
