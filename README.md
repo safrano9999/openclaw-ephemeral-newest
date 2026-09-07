@@ -119,6 +119,20 @@ which origins may connect. Open the Control UI and approve its pairing request
 through OpenClaw.
 The gateway token remains supported through `OPENCLAW_GATEWAY_TOKEN`.
 
+`OPENCLAW_TRUSTED_PROXIES` supplies `gateway.trustedProxies` as comma-separated
+proxy IP addresses or CIDRs, not URLs or browser origins. For Tailscale Serve
+forwarding locally to the gateway, `config.conf_example` presets:
+
+```text
+OPENCLAW_TRUSTED_PROXIES=127.0.0.1,::1
+```
+
+The generator normalizes and deduplicates entries. An unset or blank variable
+omits `trustedProxies`; there is no hard-coded runtime default. Specify only
+the actual proxy peers, which must overwrite or safely rebuild forwarded
+client headers. This setting does not enable trusted-proxy authentication or
+replace the gateway token and browser device pairing.
+
 Optional global HTTP MCP servers use repeatable groups:
 
 ```text

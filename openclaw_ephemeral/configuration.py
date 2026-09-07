@@ -8,6 +8,7 @@ import re
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -201,6 +202,31 @@ def discover_mcp_servers(
     return tuple(servers)
 
 
+def _trusted_proxies(environ: Mapping[str, str]) -> list[str]:
+    name = "OPENCLAW_TRUSTED_PROXIES"
+    raw = clean(environ.get(name))
+    if not raw:
+        return []
+    proxies: list[str] = []
+    for candidate in raw.split(","):
+        candidate = clean(candidate)
+        try:
+            if "%" in candidate:
+                raise ValueError("scoped addresses are not supported")
+            proxy = str(
+                ip_network(candidate, strict=False)
+                if "/" in candidate
+                else ip_address(candidate)
+            )
+        except ValueError as exc:
+            raise ConfigurationError(
+                f"{name} must contain comma-separated proxy IP addresses or CIDRs"
+            ) from exc
+        if proxy not in proxies:
+            proxies.append(proxy)
+    return proxies
+
+
 def _control_ui_allowed_origins(environ: Mapping[str, str]) -> list[str]:
     name = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS"
     raw = clean(environ.get(name))
@@ -361,6 +387,9 @@ def _gateway_config(
             "allowedOrigins": origins,
         },
     }
+    proxies = _trusted_proxies(environ)
+    if proxies:
+        gateway["trustedProxies"] = proxies
     if clean(environ.get("OPENCLAW_GATEWAY_TOKEN")):
         gateway["auth"] = {
             "mode": "token",

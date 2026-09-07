@@ -482,6 +482,48 @@ class ConfigBuilderTests(unittest.TestCase):
         )
         self.assertNotIn("hooks", config)
 
+    def test_gateway_trusts_only_configured_proxy_addresses(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            config, _, _ = build_config(
+                {
+                    "HOME": raw,
+                    "OPENCLAW_GATEWAY_TOKEN": "gateway-secret",
+                    "OPENCLAW_TRUSTED_PROXIES": (
+                        " 127.0.0.1, ::1, 127.0.0.1, 0:0:0:0:0:0:0:1,"
+                        "10.20.30.0/24, 2001:db8::/64"
+                    ),
+                },
+                destination=Path(raw) / "openclaw.json",
+            )
+
+        self.assertEqual(
+            config["gateway"]["trustedProxies"],
+            ["127.0.0.1", "::1", "10.20.30.0/24", "2001:db8::/64"],
+        )
+        self.assertEqual(config["gateway"]["auth"]["mode"], "token")
+        self.assertNotIn("allowRealIpFallback", config["gateway"])
+
+    def test_gateway_has_no_implicit_trusted_proxies(self) -> None:
+        for environ in ({}, {"OPENCLAW_TRUSTED_PROXIES": "  "}):
+            with self.subTest(environ=environ), tempfile.TemporaryDirectory() as raw:
+                config, _, _ = build_config(
+                    {"HOME": raw, **environ},
+                    destination=Path(raw) / "openclaw.json",
+                )
+                self.assertNotIn("trustedProxies", config["gateway"])
+
+    def test_gateway_rejects_invalid_proxy_addresses(self) -> None:
+        for value in (
+            "https://proxy.example.test", "proxy.example.test", "*",
+            "127.0.0.1:18789", "127.0.0.1,", "10.0.0.0/33", "fe80::1%eth0",
+        ):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as raw:
+                with self.assertRaisesRegex(ValueError, "OPENCLAW_TRUSTED_PROXIES"):
+                    build_config(
+                        {"HOME": raw, "OPENCLAW_TRUSTED_PROXIES": value},
+                        destination=Path(raw) / "openclaw.json",
+                    )
+
     def test_gateway_auto_adds_cloudflare_and_tailscale_origins_once(self) -> None:
         status = {
             "Self": {
