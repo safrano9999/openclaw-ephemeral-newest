@@ -616,6 +616,47 @@ class ConfigBuilderTests(unittest.TestCase):
 
 
 class CompleteConfigureTests(unittest.TestCase):
+    def test_state_directory_selects_config_after_explicit_path_overrides(self) -> None:
+        for override in ("state", "config-path", "config", "legacy-home"):
+            with self.subTest(override=override), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                environ = {
+                    "HOME": str(root / "home"),
+                    "OPENCLAW_HOME": str(root / "legacy-home"),
+                    "OPENCLAW_STATE_DIR": str(root / "state"),
+                    "OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS": CONTROL_UI_ORIGINS,
+                }
+                expected = root / "state" / "openclaw.json"
+                if override in {"config-path", "config"}:
+                    expected = root / "explicit-path" / "openclaw.json"
+                    environ["OPENCLAW_CONFIG_PATH"] = str(expected)
+                if override == "config":
+                    expected = root / "explicit-config" / "openclaw.json"
+                    environ["OPENCLAW_CONFIG"] = str(expected)
+                if override == "legacy-home":
+                    environ["OPENCLAW_STATE_DIR"] = " "
+                    expected = root / "legacy-home" / "openclaw.json"
+                expected.parent.mkdir(parents=True)
+                expected.write_text('{"discarded": true}\n', encoding="utf-8")
+                with (
+                    patch(
+                        "openclaw_ephemeral.configuration.discover_native_models",
+                        return_value=((), ()),
+                    ),
+                    patch(
+                        "openclaw_ephemeral.configuration.discover_openai_v1_providers",
+                        return_value=((), ()),
+                    ),
+                ):
+                    result = configure(environ)
+                self.assertEqual(result.path, expected)
+                written = json.loads(expected.read_text(encoding="utf-8"))
+                self.assertNotIn("discarded", written)
+                self.assertEqual(
+                    written["agents"]["defaults"]["workspace"],
+                    str(expected.parent / "workspace"),
+                )
+
     def test_configure_reports_mcp_count_without_serializing_bearer(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             destination = Path(raw) / "openclaw.json"

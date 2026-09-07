@@ -63,7 +63,7 @@ class NativeProviderDiscoveryTests(unittest.TestCase):
                                     {
                                         "provider": "anthropic",
                                         "env": {
-                                            "source": "env: ANTHROPIC_API_KEY"
+                                            "source": "shell env: ANTHROPIC_API_KEY"
                                         },
                                     },
                                     {
@@ -122,6 +122,42 @@ class NativeProviderDiscoveryTests(unittest.TestCase):
         self.assertEqual(warnings, ())
         self.assertEqual(calls[0][0][:2], ["node", "/app/openclaw.mjs"])
         self.assertEqual(len(calls), 3)
+
+    def test_auth_source_shapes_require_an_exact_injected_environment_id(self) -> None:
+        cases = (
+            ({"env": "env: PROVIDED_API_KEY"}, True),
+            ({"env": {"source": "shell env: PROVIDED_API_KEY"}}, True),
+            ({"env": {"source": "env", "id": "PROVIDED_API_KEY"}}, True),
+            ({"effective": {"source": "env", "name": "PROVIDED_API_KEY"}}, True),
+            ({"resolved": {"source": "env", "envVar": "PROVIDED_API_KEY"}}, True),
+            ({"credential": [{"source": "env", "envVarName": "PROVIDED_API_KEY"}]}, True),
+            ({"env": {"source": "file", "id": "PROVIDED_API_KEY"}}, False),
+            ({"env": {"source": "env: PROVIDED_API_KEY_SUFFIX"}}, False),
+            ({"env": {"source": "env: OTHER_API_KEY"}}, False),
+            ({"env": {"source": "profile: env: PROVIDED_API_KEY"}}, False),
+            ({"description": "env: PROVIDED_API_KEY"}, False),
+        )
+        for source, recognized in cases:
+            with self.subTest(source=source):
+                catalog_calls = []
+
+                def runner(command: list[str], **_kwargs: Any) -> Completed:
+                    if "status" in command:
+                        return Completed(stdout=json.dumps({"auth": {"providers": [{
+                            "provider": "provided", **source,
+                        }]}}))
+                    catalog_calls.append(command[command.index("--provider") + 1])
+                    return Completed(stdout=json.dumps({"models": [{
+                        "key": "provided/model", "available": True, "missing": False,
+                    }]}))
+
+                models, warnings = discover_native_models(
+                    {"PROVIDED_API_KEY": "synthetic-secret"}, runner=runner,
+                )
+                self.assertEqual(models, ("provided/model",) if recognized else ())
+                self.assertEqual(catalog_calls, ["provided"] if recognized else [])
+                self.assertEqual(bool(warnings), not recognized)
+                self.assertNotIn("synthetic-secret", str(warnings))
 
     def test_cli_output_parser_tolerates_a_banner(self) -> None:
         def runner(command: list[str], **_kwargs: Any) -> Completed:

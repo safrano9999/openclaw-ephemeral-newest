@@ -139,6 +139,44 @@ def _model_key(row: Mapping[str, Any], provider: str) -> str:
     return ""
 
 
+_ENV_SOURCE_LABEL = re.compile(
+    r"^(?:shell\s+)?env:\s*([A-Z][A-Z0-9_]*)$",
+    re.IGNORECASE,
+)
+
+
+def _env_source_ids(value: Any) -> set[str]:
+    """Extract exact environment IDs from string and structured auth sources."""
+
+    if isinstance(value, str):
+        match = _ENV_SOURCE_LABEL.fullmatch(value.strip())
+        return {match.group(1).upper()} if match else set()
+    if isinstance(value, Mapping):
+        found: set[str] = set()
+        source = clean(
+            value.get("source") if isinstance(value.get("source"), str) else ""
+        )
+        if source.lower() == "env":
+            for field in ("id", "name", "envVar", "envVarName"):
+                candidate = value.get(field)
+                if isinstance(candidate, str) and re.fullmatch(
+                    r"[A-Z][A-Z0-9_]*",
+                    candidate.strip(),
+                    re.IGNORECASE,
+                ):
+                    found.add(candidate.strip().upper())
+        for field in ("source", "env", "effective", "resolved", "credential"):
+            if field in value:
+                found.update(_env_source_ids(value[field]))
+        return found
+    if isinstance(value, (list, tuple)):
+        found: set[str] = set()
+        for item in value:
+            found.update(_env_source_ids(item))
+        return found
+    return set()
+
+
 def discover_native_models(
     environ: Mapping[str, str],
     *,
@@ -208,20 +246,13 @@ def discover_native_models(
         provider_rows = auth.get("providers", []) if isinstance(auth, Mapping) else []
         providers: set[str] = set()
         if isinstance(provider_rows, list):
-            sources = {f"env: {name}" for name in configured_keys}
             for row in provider_rows:
                 if not isinstance(row, Mapping):
                     continue
                 provider = clean(
                     row.get("provider") if isinstance(row.get("provider"), str) else ""
                 )
-                env_info = row.get("env", {})
-                source = (
-                    env_info.get("source")
-                    if isinstance(env_info, Mapping)
-                    else None
-                )
-                if provider and source in sources:
+                if provider and configured_keys.intersection(_env_source_ids(row)):
                     providers.add(provider)
 
         # Preserve discovery for the existing Sakana credential interface when

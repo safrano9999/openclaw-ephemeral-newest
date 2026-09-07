@@ -123,7 +123,7 @@ def config_path(environ: Mapping[str, str]) -> Path:
 
     raw = first_value(environ, "OPENCLAW_CONFIG", "OPENCLAW_CONFIG_PATH")
     if not raw:
-        home = first_value(environ, "OPENCLAW_HOME")
+        home = first_value(environ, "OPENCLAW_STATE_DIR", "OPENCLAW_HOME")
         if home:
             raw = str(Path(home) / "openclaw.json")
         else:
