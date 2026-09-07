@@ -9,7 +9,11 @@ from pathlib import Path
 
 from openclaw_ephemeral.configuration import configure
 from openclaw_ephemeral.environment import ConfigurationError
-from openclaw_ephemeral.plugins import discover_openclaw_plugins
+from openclaw_ephemeral.plugins import (
+    OpenClawPlugin,
+    discover_openclaw_plugins,
+    register_openclaw_plugins,
+)
 
 
 class ManagedPluginDiscoveryTests(unittest.TestCase):
@@ -70,7 +74,7 @@ class ManagedPluginDiscoveryTests(unittest.TestCase):
             config = json.loads(destination.read_text(encoding="utf-8"))
             self.assertEqual(result.plugin_count, 2)
             self.assertEqual(set(config["plugins"]["load"]["paths"]), {
-                str(paths["codex"]), str(paths["brave"]),
+                str(paths["brave"]),
             })
             for name in ("codex", "brave"):
                 self.assertTrue(config["plugins"]["entries"][name]["enabled"])
@@ -81,6 +85,21 @@ class ManagedPluginDiscoveryTests(unittest.TestCase):
             self.assertEqual(config["agents"]["entries"]["main"]["tools"], {"allow": ["*"], "deny": []})
             self.assertEqual(calls, [["openclaw", "plugins", "registry", "--refresh"]])
             self.assertEqual(database_path.read_bytes(), original_database)
+
+    def test_codex_stays_enabled_without_an_explicit_path_on_reregistration(self) -> None:
+        codex_path = Path("/root/.openclaw/extensions/codex")
+        note_path = "/root/.openclaw/extensions/note"
+        config = {"plugins": {"load": {"paths": [str(codex_path), note_path]}}}
+        plugin = OpenClawPlugin("codex", "codex", codex_path, {}, None)
+
+        for _ in range(2):
+            registered = register_openclaw_plugins(
+                config, [plugin], environ={},
+                destination=Path("/root/.openclaw/openclaw.json"),
+            )
+            self.assertEqual(registered, ("codex",))
+            self.assertEqual(config["plugins"]["load"]["paths"], [note_path])
+            self.assertTrue(config["plugins"]["entries"]["codex"]["enabled"])
 
     def test_invalid_canonical_metadata_is_not_silently_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

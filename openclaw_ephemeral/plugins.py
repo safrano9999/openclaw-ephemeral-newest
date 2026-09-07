@@ -331,7 +331,11 @@ def register_openclaw_plugins(
     registered: list[str] = []
     for plugin in plugins:
         path_text = str(plugin.path)
-        if path_text not in paths:
+        # Codex needs its bundled/global origin for native compaction and /codex.
+        # An explicit load path changes that origin to "config".
+        if plugin.plugin_id == "codex":
+            paths[:] = [existing for existing in paths if existing != path_text]
+        elif path_text not in paths:
             paths.append(path_text)
         entry = entries.setdefault(plugin.plugin_id, {})
         if not isinstance(entry, dict):
