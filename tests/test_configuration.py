@@ -17,6 +17,7 @@ from openclaw_ephemeral.configuration import (
     configure,
     discover_mcp_servers,
 )
+from openclaw_ephemeral.environment import ConfigurationError
 from openclaw_ephemeral.providers import OpenAIV1Provider
 
 
@@ -464,6 +465,67 @@ class ConfigBuilderTests(unittest.TestCase):
             self.assertNotIn(secrets["hooks"], serialized)
             self.assertNotIn(secrets["telegram"], serialized)
             self.assertNotIn(secrets["telegram_auto"], serialized)
+
+    def test_heartbeats_are_disabled_without_a_telegram_account(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            config, _, _ = build_config(
+                {"HOME": raw}, destination=Path(raw) / "openclaw.json"
+            )
+        self.assertEqual(config["agents"]["entries"]["main"]["heartbeat"]["every"], "0m")
+
+    def test_telegram_heartbeats_are_disabled_by_default(self) -> None:
+        for value in (None, "", "0"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as raw:
+                env = {
+                    "HOME": raw,
+                    "OPENCLAW_TELEGRAMTOKEN": "test-token",
+                    "OPENCLAW_TELEGRAM_CHAT_ID": "12345",
+                }
+                if value is not None:
+                    env["OPENCLAW_TELEGRAM_HEARTBEAT_MINUTES"] = value
+                config, _, _ = build_config(env, destination=Path(raw) / "openclaw.json")
+                self.assertEqual(
+                    config["agents"]["entries"]["main"]["heartbeat"]["every"], "0m"
+                )
+
+    def test_telegram_heartbeat_intervals_are_scoped_to_their_agents(self) -> None:
+        for suffix in ("_02", "_2"):
+            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as raw:
+                config, _, _ = build_config(
+                    {
+                        "HOME": raw,
+                        "OPENCLAW_TELEGRAMTOKEN": "first-token",
+                        "OPENCLAW_TELEGRAM_CHAT_ID": "12345",
+                        "OPENCLAW_TELEGRAM_HEARTBEAT_MINUTES": "30",
+                        f"OPENCLAW_TELEGRAM_AGENT{suffix}": "worker",
+                        f"OPENCLAW_TELEGRAMTOKEN{suffix}": "second-token",
+                        f"OPENCLAW_TELEGRAM_CHAT_ID{suffix}": "67890",
+                        f"OPENCLAW_TELEGRAM_HEARTBEAT_MINUTES{suffix}": "360",
+                        "OPENCLAW_TELEGRAM_AGENT_03": "quiet",
+                        "OPENCLAW_TELEGRAMTOKEN_03": "third-token",
+                        "OPENCLAW_TELEGRAM_CHAT_ID_03": "54321",
+                    },
+                    destination=Path(raw) / "openclaw.json",
+                )
+                entries = config["agents"]["entries"]
+                self.assertEqual(entries["main"]["heartbeat"]["every"], "30m")
+                self.assertEqual(entries["worker"]["heartbeat"]["every"], "360m")
+                self.assertEqual(entries["quiet"]["heartbeat"]["every"], "0m")
+
+    def test_invalid_telegram_heartbeat_intervals_are_rejected(self) -> None:
+        for value in ("-1", "1.5", "30m", "invalid"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as raw:
+                with self.assertRaisesRegex(ConfigurationError, "HEARTBEAT_MINUTES_02"):
+                    build_config(
+                        {
+                            "HOME": raw,
+                            "OPENCLAW_TELEGRAM_AGENT_02": "worker",
+                            "OPENCLAW_TELEGRAMTOKEN_02": "test-token",
+                            "OPENCLAW_TELEGRAM_CHAT_ID_02": "12345",
+                            "OPENCLAW_TELEGRAM_HEARTBEAT_MINUTES_02": value,
+                        },
+                        destination=Path(raw) / "openclaw.json",
+                    )
 
     def test_gateway_uses_example_origin_preset(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

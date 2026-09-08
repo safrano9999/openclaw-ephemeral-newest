@@ -52,6 +52,15 @@ configurations retain `main` as the owner of system work and Talk, with the
 existing Telegram account routes and a `main` fallback. Session stores remain
 scoped to their agents.
 
+Each Telegram account can set `OPENCLAW_TELEGRAM_HEARTBEAT_MINUTES` (and
+`_02`, `_03`, etc. for repeated accounts). The setup preset and runtime default
+are `0`, which disables scheduled heartbeats using OpenClaw's `every: "0m"`.
+Set a positive whole number of minutes, such as `360` for six hours, to enable
+that agent's heartbeat. An omitted or blank value also disables it. The main
+agent remains disabled when it has no configured Telegram account. This
+replaces the previous fixed six-hour interval; set `360` explicitly to retain
+that interval when regenerating an existing configuration.
+
 Existing state must complete OpenClaw's explicit Doctor migrations before
 startup. In particular, retired `exec-approvals.json` blocks approval commands
 until `openclaw doctor --fix` imports or reconciles it with SQLite. This runtime

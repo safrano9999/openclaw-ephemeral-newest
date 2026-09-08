@@ -48,7 +48,8 @@ MCP_SUFFIX = re.compile(
 )
 SAFE_MCP_SERVER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 TELEGRAM_SUFFIX = re.compile(
-    r"^OPENCLAW_TELEGRAM(?:TOKEN|_(?:AGENT|CHAT_ID|DEFAULT))_(0?[2-9]|[1-4][0-9]|50)$"
+    r"^OPENCLAW_TELEGRAM(?:TOKEN|_(?:AGENT|CHAT_ID|DEFAULT|HEARTBEAT_MINUTES))"
+    r"_(0?[2-9]|[1-4][0-9]|50)$"
 )
 SAFE_AGENT_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
@@ -450,6 +451,12 @@ def _telegram_accounts(environ: Mapping[str, str]) -> tuple[dict[str, Any], ...]
                 "agent": agent,
                 "token": token_key,
                 "chat": chat,
+                "heartbeat_minutes": integer(
+                    environ,
+                    _telegram_key(environ, "OPENCLAW_TELEGRAM_HEARTBEAT_MINUTES", index),
+                    default=0,
+                    minimum=0,
+                ),
                 "default": boolean(
                     environ,
                     _telegram_key(environ, "OPENCLAW_TELEGRAM_DEFAULT", index),
@@ -493,6 +500,10 @@ def _main_agent_config(
     names = dict.fromkeys(
         ("main", *(account["agent"] for account in telegram_accounts))
     )
+    heartbeats = {
+        account["agent"]: f"{account['heartbeat_minutes']}m"
+        for account in telegram_accounts
+    }
     for name in names:
         current_workspace = (
             workspace if name == "main" else workspace.parent / f"{workspace.name}-{name}"
@@ -509,7 +520,7 @@ def _main_agent_config(
             "workspace": str(current_workspace),
             "agentDir": str(current_agent_dir),
             "heartbeat": {
-                "every": "360m",
+                "every": heartbeats.get(name, "0m"),
                 "target": "last",
                 "directPolicy": "allow",
             },
