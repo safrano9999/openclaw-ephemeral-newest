@@ -13,10 +13,57 @@ from openclaw_ephemeral.plugins import (
     OpenClawPlugin,
     discover_openclaw_plugins,
     register_openclaw_plugins,
+    restore_image_plugin_installs,
 )
 
 
 class ManagedPluginDiscoveryTests(unittest.TestCase):
+    def test_image_upgrade_refreshes_plugin_metadata_and_preserves_private_state(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            records = {}
+            for name in ("codex", "brave", "note"):
+                path = root / "image" / name
+                path.mkdir(parents=True)
+                (path / "openclaw.plugin.json").write_text(json.dumps({"id": name}))
+                (path / "package.json").write_text(json.dumps({
+                    "version": "2026.9.3" if name != "note" else "operator-version",
+                }))
+                records[name] = {"installPath": str(path), "version": "2026.9.3"}
+            previous = {
+                "codex": {**records["codex"], "version": "2026.9.2"},
+                "brave": {"installPath": str(root / "operator-brave"), "version": "custom"},
+                "note": {**records["note"], "version": "operator-version"},
+                "custom": {"installPath": str(root / "custom"), "version": "1"},
+            }
+            database_path = root / "state" / "openclaw.sqlite"
+            database_path.parent.mkdir()
+            with sqlite3.connect(database_path) as database:
+                database.execute(
+                    "CREATE TABLE config_machine_state (state_key TEXT PRIMARY KEY, value_json TEXT)"
+                )
+                database.execute("INSERT INTO config_machine_state VALUES (?, ?)", (
+                    "plugins.installedIndex",
+                    json.dumps({"revision": 1, "index": {"installRecords": previous}}),
+                ))
+                database.execute("INSERT INTO config_machine_state VALUES ('private-state', 'preserve-me')")
+            seed_path = root / "image-plugin-installs.json"
+            seed_path.write_text(json.dumps({"schemaVersion": 1, "installRecords": records}))
+
+            def read_rows():
+                with sqlite3.connect(database_path) as database:
+                    return dict(database.execute("SELECT state_key, value_json FROM config_machine_state"))
+
+            arguments = {"destination": root / "openclaw.json", "seed_path": seed_path}
+            restore_image_plugin_installs({"OPENCLAW_STATE_DIR": raw}, **arguments)
+            updated = read_rows()
+            ledger = json.loads(updated["plugins.installedIndex"])
+            self.assertEqual(ledger["revision"], 2)
+            self.assertEqual(ledger["index"]["installRecords"], {**previous, "codex": records["codex"]})
+            self.assertEqual(updated["private-state"], "preserve-me")
+            restore_image_plugin_installs({"OPENCLAW_STATE_DIR": raw}, **arguments)
+            self.assertEqual(read_rows(), updated)
+
     def test_configure_registers_only_ledger_owned_managed_plugin_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

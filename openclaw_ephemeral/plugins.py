@@ -18,6 +18,7 @@ from .environment import ConfigurationError, clean, state_dir_path, workspace_pa
 
 MANIFEST_NAME = "openclaw.plugin.json"
 PLUGIN_ROOTS_ENV = "OPENCLAW_PLUGIN_ROOTS"
+IMAGE_PLUGIN_INSTALLS = Path("/usr/local/share/openclaw/image-plugin-installs.json")
 SKIPPED_TREE_NAMES = frozenset(
     {".git", ".venv", "__pycache__", "node_modules"}
 )
@@ -38,6 +39,65 @@ class OpenClawPlugin:
     path: Path
     manifest: Mapping[str, Any]
     hook_path: str | None
+
+
+def restore_image_plugin_installs(
+    environ: Mapping[str, str],
+    *,
+    destination: Path,
+    seed_path: Path = IMAGE_PLUGIN_INSTALLS,
+) -> None:
+    """Reconcile image plugin records after mounting an older persistent ledger."""
+
+    database_path = state_dir_path(environ, destination) / "state" / "openclaw.sqlite"
+    if not seed_path.is_file() or not database_path.is_file():
+        return
+    try:
+        seed = json.loads(seed_path.read_text(encoding="utf-8"))
+        if seed["schemaVersion"] != 1 or not isinstance(seed["installRecords"], dict):
+            raise ValueError("invalid image plugin records")
+        matching: dict[str, Any] = {}
+        for plugin_id, record in seed["installRecords"].items():
+            path = Path(record["installPath"])
+            if not (path / MANIFEST_NAME).is_file() or not (path / "package.json").is_file():
+                continue
+            package = json.loads((path / "package.json").read_text(encoding="utf-8"))
+            if package.get("version") == record.get("version"):
+                matching[plugin_id] = record
+        if not matching:
+            return
+        with closing(sqlite3.connect(database_path.resolve().as_uri() + "?mode=rw", uri=True)) as database:
+            if not database.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'config_machine_state'"
+            ).fetchone():
+                return
+            with database:
+                database.execute("BEGIN IMMEDIATE")
+                row = database.execute(
+                    "SELECT value_json FROM config_machine_state WHERE state_key = ?",
+                    ("plugins.installedIndex",),
+                ).fetchone()
+                if row is None:
+                    return
+                ledger = json.loads(row[0])
+                records = ledger["index"]["installRecords"]
+                changed = False
+                for plugin_id, record in matching.items():
+                    previous = records.get(plugin_id)
+                    # Keep an operator's installation at a different path.
+                    if previous and previous.get("installPath") != record["installPath"]:
+                        continue
+                    if previous != record:
+                        records[plugin_id] = record
+                        changed = True
+                if changed:
+                    ledger["revision"] += 1
+                    database.execute(
+                        "UPDATE config_machine_state SET value_json = ? WHERE state_key = ?",
+                        (json.dumps(ledger), "plugins.installedIndex"),
+                    )
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ConfigurationError("cannot reconcile image plugin install records") from exc
 
 
 def _path_list(raw: str) -> tuple[str, ...]:

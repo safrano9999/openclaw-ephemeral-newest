@@ -38,11 +38,18 @@ load paths and entries; duplicate plugin ids keep the first root in discovery
 order. This final-image scan also sees plugins contributed by the topmost image
 layer.
 
-On OpenClaw 2026.9.2, managed npm/ClawHub plugin paths are also read from the
+On OpenClaw 2026.9.2 and later, managed npm/ClawHub plugin paths are also read from the
 SQLite installed-plugin ledger. Only its recorded package roots are scanned;
-unrelated `node_modules` trees are not searched. The ledger is not rewritten or
-copied into `openclaw.json`. Native provider discovery carries the discovered
+unrelated `node_modules` trees are not searched. The ledger is not copied into
+`openclaw.json`. Native provider discovery carries the discovered
 provider plugin paths into its isolated temporary configuration.
+
+Images may supply public install records in
+`/usr/local/share/openclaw/image-plugin-installs.json`. Before discovery,
+configuration reconciles those records with an older persistent ledger when the
+installed package version matches the image. Installations at other paths,
+custom plugin records, and unrelated persistent state are preserved. This
+prevents an image upgrade from retaining obsolete Codex plugin metadata.
 
 Generated configurations use keyed `agents.entries`, explicit model override
 allowlists in `agents.defaults.modelPolicy.allow`, and `tools.exec.mode=full`.

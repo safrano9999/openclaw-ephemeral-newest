@@ -29,7 +29,11 @@ from .environment import (
     without_secret_values,
 )
 from .filesystem import atomic_write_json
-from .plugins import discover_openclaw_plugins, register_openclaw_plugins
+from .plugins import (
+    discover_openclaw_plugins,
+    register_openclaw_plugins,
+    restore_image_plugin_installs,
+)
 from .providers import (
     OpenAIV1Provider,
     discover_native_models,
@@ -757,6 +761,7 @@ def configure(
 
     injected = expand_api_key_aliases(os.environ if environ is None else environ)
     destination = config_path(injected)
+    restore_image_plugin_installs(injected, destination=destination)
     discovered_plugins, plugin_warnings = discover_openclaw_plugins(
         injected,
         destination=destination,
