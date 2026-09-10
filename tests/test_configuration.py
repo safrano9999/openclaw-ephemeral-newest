@@ -96,6 +96,47 @@ class ConfigBuilderTests(unittest.TestCase):
         self.assertNotIn("allowPrivateNetwork", servers["paperless-mcp"])
         self.assertNotIn("first-secret", json.dumps(config))
 
+    def test_mcp_agent_selection_is_per_server_without_restricting_agent_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            for default in (None, "", "  ", "*", " * "):
+                with self.subTest(default=default):
+                    environ = {
+                        "HOME": raw,
+                        "MCP_SERVER_URL": "http://first.test/mcp",
+                        "MCP_SERVER_URL_02": "http://second.test/mcp",
+                        "MCP_ALLOW_02": " MAIN, goldesel, main, , ",
+                        "MCP_SERVER_URL_3": "http://third.test/mcp",
+                        "MCP_ALLOW_3": "haus",
+                    }
+                    if default is not None:
+                        environ["MCP_ALLOW"] = default
+                    config, _, _ = build_config(
+                        environ, destination=Path(raw) / "openclaw.json",
+                    )
+                    servers = config["mcp"]["servers"]
+                    self.assertEqual(servers["first.test"]["codex"], {
+                        "defaultToolsApprovalMode": "approve",
+                    })
+                    self.assertEqual(servers["second.test"]["codex"], {
+                        "defaultToolsApprovalMode": "approve",
+                        "agents": ["main", "goldesel"],
+                    })
+                    self.assertEqual(servers["third.test"]["codex"]["agents"], ["haus"])
+                    self.assertEqual(config["agents"]["entries"]["main"]["tools"], {
+                        "allow": ["*"], "deny": [],
+                    })
+
+    def test_invalid_mcp_agent_selection_is_rejected(self) -> None:
+        for value in (", ,", "main,*", "bad/name", "main goldesel", "1main"):
+            with self.subTest(value=value), self.assertRaisesRegex(ConfigurationError, "MCP_ALLOW_02"):
+                discover_mcp_servers({
+                    "MCP_SERVER_URL_02": "http://example.test/mcp",
+                    "MCP_ALLOW_02": value,
+                })
+        for key in ("MCP_ALLOW_01", "MCP_ALLOW_51", "MCP_ALLOW_002"):
+            with self.subTest(key=key), self.assertRaisesRegex(ConfigurationError, key):
+                discover_mcp_servers({key: "main"})
+
     def test_empty_optional_mcp_groups_do_not_create_mcp_config(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             config, _, _ = build_config(

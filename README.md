@@ -149,25 +149,31 @@ the actual proxy peers, which must overwrite or safely rebuild forwarded
 client headers. This setting does not enable trusted-proxy authentication or
 replace the gateway token and browser device pairing.
 
-Optional global HTTP MCP servers use repeatable groups:
+Optional HTTP MCP servers use repeatable groups:
 
 ```text
 MCP_SERVER_NAME=
 MCP_SERVER_URL=
 MCP_SERVER_BEARER=
 MCP_SERVER_ALLOW_PRIVATE=0
+MCP_ALLOW=*
 
 MCP_SERVER_NAME_02=
 MCP_SERVER_URL_02=
 MCP_SERVER_BEARER_02=
 MCP_SERVER_ALLOW_PRIVATE_02=0
+MCP_ALLOW_02=main,goldesel
 ```
 
 The first group has no `_01` suffix; later groups use `_02`, `_03`, and so on.
 Only the URL activates a group. The name and bearer are optional, with a
-missing name derived from the URL hostname. Servers are available globally
-without tool filters, advertise parallel tool calls, and use Codex approval
-mode `approve`. Bearers are stored as environment placeholders such as
+missing name derived from the URL hostname. Servers advertise parallel tool calls
+and use Codex approval mode `approve`. Optional `MCP_ALLOW[_NN]` contains CSV
+agent ids for that server's `codex.agents`; blank, omitted, or `*` leaves the
+field absent and makes the server available to all Codex agents. Explicit ids
+are trimmed, lowercased, and deduplicated. This is Codex-specific MCP selection;
+it does not change general agent tool policies or other runtimes.
+Bearers are stored as environment placeholders such as
 `Bearer ${MCP_SERVER_BEARER_02}`, never as resolved tokens.
 Set the matching `MCP_SERVER_ALLOW_PRIVATE[_NN]` to `1` only for a trusted MCP
 endpoint on loopback, a private network, or a link-local host alias.
