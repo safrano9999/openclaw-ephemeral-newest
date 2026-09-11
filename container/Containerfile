@@ -10,7 +10,7 @@ ARG NOTE_RELEASE_SHA256=2d3a4bff771e9dd85b6d39c0a1bb63dd68f99f65d73c6d2caae29eb6
 
 LABEL org.opencontainers.image.title="openclaw-ephemeral" \
       org.opencontainers.image.description="OpenClaw with the deterministic patch, NOTE, and a fresh environment-derived configuration at every start." \
-      org.opencontainers.image.source="https://github.com/safrano9999/openclaw-ephemeral-latest" \
+      org.opencontainers.image.source="https://github.com/safrano9999/openclaw-ephemeral" \
       org.opencontainers.image.version="${OPENCLAW_VERSION}" \
       io.safrano9999.openclaw.version="${OPENCLAW_VERSION}" \
       io.safrano9999.openclaw-deterministic.release="${OPENCLAW_DETERMINISTIC_TAG}" \

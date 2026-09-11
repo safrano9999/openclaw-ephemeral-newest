@@ -210,8 +210,8 @@ python3 -m unittest discover -s tests -v
 
 ## Optional container image
 
-[![GHCR](https://img.shields.io/badge/GHCR-openclaw--ephemeral--latest-0ea5e9)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest)
-[![Image tags](https://img.shields.io/badge/image-tags-2563eb)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest)
+[![GHCR](https://img.shields.io/badge/GHCR-openclaw--ephemeral-0ea5e9)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral)
+[![Image tags](https://img.shields.io/badge/image-tags-2563eb)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral)
 [![Deterministic source](https://img.shields.io/badge/source-openclaw--deterministic--latest-111827)](https://github.com/safrano9999/openclaw-deterministic-latest)
 [![Release overview](https://img.shields.io/badge/release-overview-7c3aed)](RELEASE.md)
 
@@ -220,7 +220,7 @@ repository root remains the build context so the Containerfile can copy the
 unchanged Python package and launcher.
 
 The optional image target is
-[`ghcr.io/safrano9999/openclaw-ephemeral-latest`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest).
+[`ghcr.io/safrano9999/openclaw-ephemeral`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral).
 This migration does not build or publish it. Its pinned components are:
 
 - `ghcr.io/openclaw/openclaw:2026.9.2`
@@ -279,9 +279,9 @@ workflow rather than the current pinned build.
 ## Pull the optional image after publication
 
 ```bash
-docker pull ghcr.io/safrano9999/openclaw-ephemeral-latest:latest
+docker pull ghcr.io/safrano9999/openclaw-ephemeral:latest
 ```
 
 ```bash
-podman pull ghcr.io/safrano9999/openclaw-ephemeral-latest:latest
+podman pull ghcr.io/safrano9999/openclaw-ephemeral:latest
 ```

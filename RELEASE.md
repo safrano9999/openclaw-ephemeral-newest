@@ -11,7 +11,7 @@
 | OpenClaw version | `2026.9.2` |
 | Deterministic patch | [`2026.9.2-deterministic.2`](https://github.com/safrano9999/openclaw-deterministic-latest/releases/tag/2026.9.2-deterministic.2) |
 | NOTE plugin | [`2026.7.36`](https://github.com/safrano9999/NOTE/releases/tag/2026.7.36) |
-| Optional image target | [`ghcr.io/safrano9999/openclaw-ephemeral-latest`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest) |
+| Optional image target | [`ghcr.io/safrano9999/openclaw-ephemeral`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral) |
 
 The Git tag identifies an `openclaw-ephemeral` image release. It does **not**
 float the embedded OpenClaw runtime: the base image and the
@@ -84,7 +84,7 @@ model.
 
 ## 3. openclaw-ephemeral
 
-[`safrano9999/openclaw-ephemeral-latest`](https://github.com/safrano9999/openclaw-ephemeral-latest)
+[`safrano9999/openclaw-ephemeral`](https://github.com/safrano9999/openclaw-ephemeral)
 owns the Python runtime scripts, container definition, tests, and release
 workflow. At every start, the runtime creates a fresh OpenClaw configuration
 from the injected environment rather than merging a previous configuration.
@@ -93,10 +93,10 @@ servers with unrestricted tools and environment-referenced bearer tokens.
 
 After an explicitly authorized standalone build and publication, the image
 target is
-[`ghcr.io/safrano9999/openclaw-ephemeral-latest`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest).
+[`ghcr.io/safrano9999/openclaw-ephemeral`](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral).
 
 ```bash
-docker pull ghcr.io/safrano9999/openclaw-ephemeral-latest:latest
+docker pull ghcr.io/safrano9999/openclaw-ephemeral:latest
 ```
 
 ## Release automation
