@@ -212,7 +212,7 @@ python3 -m unittest discover -s tests -v
 
 [![GHCR](https://img.shields.io/badge/GHCR-openclaw--ephemeral--latest-0ea5e9)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest)
 [![Image tags](https://img.shields.io/badge/image-tags-2563eb)](https://github.com/users/safrano9999/packages/container/package/openclaw-ephemeral-latest)
-[![Deterministic source](https://img.shields.io/badge/source-openclaw--deterministic--newest-111827)](https://github.com/safrano9999/openclaw-deterministic-newest)
+[![Deterministic source](https://img.shields.io/badge/source-openclaw--deterministic--latest-111827)](https://github.com/safrano9999/openclaw-deterministic-latest)
 [![Release overview](https://img.shields.io/badge/release-overview-7c3aed)](RELEASE.md)
 
 The image definition and its build/runtime helpers live in `container/`. The
@@ -224,7 +224,7 @@ The optional image target is
 This migration does not build or publish it. Its pinned components are:
 
 - `ghcr.io/openclaw/openclaw:2026.9.2`
-- [`openclaw-deterministic-newest` release `2026.9.2-deterministic.2`](https://github.com/safrano9999/openclaw-deterministic-newest/releases/tag/2026.9.2-deterministic.2)
+- [`openclaw-deterministic-latest` release `2026.9.2-deterministic.2`](https://github.com/safrano9999/openclaw-deterministic-latest/releases/tag/2026.9.2-deterministic.2)
 - [NOTE release ZIP `2026.7.36`](https://github.com/safrano9999/NOTE/releases/tag/2026.7.36)
 - this repository's environment-driven Python runtime
 
