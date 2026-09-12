@@ -812,9 +812,8 @@ def configure(
         opener=opener,
     )
     mcp_servers = discover_mcp_servers(injected)
-    # Validate the two explicit repository selections while the complete final
-    # image is visible. The actual gateway-side scheduling happens later.
-    build_schedule_plan(injected, discovered_plugins)
+    # Validate optional webhook groups before the gateway starts.
+    build_schedule_plan(injected)
     config, primary_model, note_full_mode = build_config(
         injected,
         destination=destination,

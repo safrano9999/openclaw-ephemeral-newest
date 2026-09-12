@@ -40,15 +40,6 @@ OPENCLAW_MODEL_THINKING=high
 #default-preset: 1
 OPENCLAW_NOTE_FULL_MODE=1
 
-# Vienna wall-clock values, for example: CET 07:00,CET 19:00
-OPENCLAW_CRONTAB_TIME=
-
-# Repository directory names whose plugin hooks run at every configured time.
-OPENCLAW_CRONTAB_REPOS=
-
-# Repository directory names whose plugin hooks run once after gateway startup.
-OPENCLAW_REPOS_START_INIT=
-
 #when: NOTE_DB_BACKEND=file
 #required: NOTE file backend path
 NOTE_PATH=./OBSIDIAN/NOTES/INBOX

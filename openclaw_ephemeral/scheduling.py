@@ -1,4 +1,4 @@
-"""Repository-hook dispatch and idempotent OpenClaw cron reconciliation."""
+"""Generic webhook schedules and idempotent OpenClaw cron reconciliation."""
 
 from __future__ import annotations
 
@@ -10,22 +10,89 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
-from .environment import ConfigurationError, clean, config_path, integer, openclaw_command
-from .plugins import (
-    OpenClawPlugin,
-    discover_openclaw_plugins,
-    select_plugin_hooks,
-)
+from .environment import ConfigurationError, clean, integer, openclaw_command
 
 
-CRONTAB_TIME_ENV = "OPENCLAW_CRONTAB_TIME"
-CRONTAB_REPOS_ENV = "OPENCLAW_CRONTAB_REPOS"
-START_INIT_ENV = "OPENCLAW_REPOS_START_INIT"
+URL_KEY = re.compile(r"^WEBHOOK_URL(?P<suffix>_\d{2,})?$")
+
+
+@dataclass(frozen=True)
+class Webhook:
+    key: str
+    url: str
+    bearer: str
+    times: str
+    init: bool
+
+
+def discover_webhooks(environ: Mapping[str, str]) -> tuple[Webhook, ...]:
+    keys = sorted((key for key in environ if URL_KEY.fullmatch(key)),
+                  key=lambda key: int(key.removeprefix("WEBHOOK_URL_") or "1")
+                  if key != "WEBHOOK_URL" else 1)
+    hooks = []
+    for key in keys:
+        url = clean(environ.get(key))
+        if not url:
+            continue
+        suffix = key.removeprefix("WEBHOOK_URL")
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ConfigurationError(f"{key} must be an HTTP or HTTPS URL")
+        init = clean(environ.get(f"WEBHOOK_INIT{suffix}")) or "false"
+        if init not in {"true", "false"}:
+            raise ConfigurationError(f"WEBHOOK_INIT{suffix} must be true or false")
+        bearer = clean(environ.get(f"WEBHOOK_BEARER{suffix}"))
+        if "\n" in bearer or "\r" in bearer:
+            raise ConfigurationError(f"WEBHOOK_BEARER{suffix} must be a single line")
+        hooks.append(Webhook(key, url, bearer,
+                             clean(environ.get(f"WEBHOOK_TIMES{suffix}")) or "00:00",
+                             init == "true"))
+    return tuple(hooks)
+
+
+def dispatch_webhook(
+    hook: Webhook,
+    environ: Mapping[str, str],
+    *,
+    runner: Callable[..., Any] = subprocess.run,
+) -> str:
+    """POST once; endpoints that own delivery return their own acknowledgement."""
+    config = ("header = " + json.dumps(f"Authorization: Bearer {hook.bearer}") + "\n"
+              if hook.bearer else "")
+    try:
+        result = runner(
+            ["curl", "--silent", "--show-error", "--fail-with-body", "--max-time", "300",
+             "--config", "-", "--request", "POST", "--url", hook.url],
+            input=config, capture_output=True, text=True, check=True, timeout=310,
+            env=dict(environ),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ConfigurationError(f"{hook.key}: HTTP request failed") from exc
+    text = result.stdout.strip()
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        payload = None
+    # Existing module hooks send their own reports, including conditional delivery.
+    # Their acknowledgement must never produce a duplicate Telegram message.
+    if isinstance(payload, dict) and "delivered" in payload:
+        return ""
+    target = clean(environ.get("OPENCLAW_TELEGRAM_CHAT_ID"))
+    if text and target:
+        try:
+            runner([*openclaw_command(environ), "message", "send", "--channel", "telegram",
+                    "--target", target, "--message", text],
+                   capture_output=True, text=True, check=True, timeout=90, env=dict(environ))
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ConfigurationError(f"{hook.key}: Telegram delivery failed") from exc
+    return text
+
+
 CRON_TIMEZONE = "Europe/Vienna"
-CRON_NAME_PREFIX = "openclaw-ephemeral-repositories-europe-vienna-"
+CRON_NAME_PREFIX = "openclaw-ephemeral-webhook-"
+LEGACY_CRON_NAME_PREFIX = "openclaw-ephemeral-repositories-"
 CRON_CLI_TIMEOUT_SECONDS = 30
 CRON_COMMAND_TIMEOUT_SECONDS = 3_600
 TIME_SPEC = re.compile(
@@ -88,10 +155,14 @@ class LocalTime:
 
 
 @dataclass(frozen=True)
-class SchedulePlan:
+class ScheduledWebhook:
+    hook: Webhook
     times: tuple[LocalTime, ...]
-    cron_plugins: tuple[OpenClawPlugin, ...]
-    init_plugins: tuple[OpenClawPlugin, ...]
+
+
+@dataclass(frozen=True)
+class SchedulePlan:
+    webhooks: tuple[ScheduledWebhook, ...]
 
 
 @dataclass(frozen=True)
@@ -99,27 +170,8 @@ class ScheduleResult:
     kept_jobs: int
     removed_jobs: int
     added_jobs: int
-    initialized_repositories: tuple[str, ...]
-
-
-def repository_csv(raw: str, *, name: str) -> tuple[str, ...]:
-    """Parse a strict comma-separated repository list with stable de-duplication."""
-
-    value = clean(raw)
-    if not value:
-        return ()
-    repositories: list[str] = []
-    seen: set[str] = set()
-    for item in value.split(","):
-        repository = item.strip()
-        if not repository:
-            raise ConfigurationError(f"{name} contains an empty repository name")
-        folded = repository.casefold()
-        if folded in seen:
-            continue
-        seen.add(folded)
-        repositories.append(repository)
-    return tuple(repositories)
+    initialized_webhooks: tuple[str, ...]
+    outputs: tuple[str, ...] = ()
 
 
 def crontab_times(raw: str) -> tuple[LocalTime, ...]:
@@ -135,7 +187,7 @@ def crontab_times(raw: str) -> tuple[LocalTime, ...]:
         match = TIME_SPEC.fullmatch(candidate)
         if match is None:
             raise ConfigurationError(
-                f"{CRONTAB_TIME_ENV} entry {candidate!r} must be HH:MM, "
+                f"WEBHOOK_TIMES entry {candidate!r} must be HH:MM, "
                 "CET HH:MM, CEST HH:MM, or Europe/Vienna HH:MM"
             )
         local_time = LocalTime(
@@ -149,33 +201,13 @@ def crontab_times(raw: str) -> tuple[LocalTime, ...]:
     return tuple(parsed)
 
 
-def build_schedule_plan(
-    environ: Mapping[str, str],
-    plugins: Sequence[OpenClawPlugin],
-) -> SchedulePlan:
-    """Validate all scheduling selectors against the final discovered image."""
-
-    times = crontab_times(environ.get(CRONTAB_TIME_ENV, ""))
-    cron_names = repository_csv(
-        environ.get(CRONTAB_REPOS_ENV, ""),
-        name=CRONTAB_REPOS_ENV,
-    )
-    init_names = repository_csv(
-        environ.get(START_INIT_ENV, ""),
-        name=START_INIT_ENV,
-    )
-    return SchedulePlan(
-        times=times,
-        cron_plugins=select_plugin_hooks(plugins, cron_names),
-        init_plugins=select_plugin_hooks(plugins, init_names),
-    )
+def build_schedule_plan(environ: Mapping[str, str]) -> SchedulePlan:
+    return SchedulePlan(tuple(ScheduledWebhook(hook, crontab_times(hook.times))
+                              for hook in discover_webhooks(environ)))
 
 
 def scheduling_requested(environ: Mapping[str, str]) -> bool:
-    return any(
-        clean(environ.get(name))
-        for name in (CRONTAB_TIME_ENV, CRONTAB_REPOS_ENV, START_INIT_ENV)
-    )
+    return any(key.startswith("WEBHOOK_URL") for key in environ)
 
 
 def ephemeral_command() -> list[str]:
@@ -313,19 +345,6 @@ def _list_cron_jobs(
     return tuple(job for job in jobs if isinstance(job, Mapping))
 
 
-def _dispatch_argv(
-    environ: Mapping[str, str],
-    plugins: Sequence[OpenClawPlugin],
-) -> list[str]:
-    repositories = ",".join(plugin.repository for plugin in plugins)
-    return [
-        *ephemeral_command(),
-        "dispatch",
-        "--repos",
-        repositories,
-    ]
-
-
 def _job_matches(
     job: Mapping[str, Any],
     *,
@@ -418,6 +437,7 @@ def _add_cron_job(
     environ: Mapping[str, str],
     *,
     runner: Callable[..., Any],
+    name: str | None = None,
 ) -> None:
     arguments = [
         *openclaw_command(environ),
@@ -426,7 +446,7 @@ def _add_cron_job(
         "--cron",
         local_time.expression,
         "--name",
-        f"{CRON_NAME_PREFIX}{local_time.label}",
+        name or f"{CRON_NAME_PREFIX}{local_time.label}",
         "--agent",
         "main",
         "--session",
@@ -456,131 +476,60 @@ def reconcile_cron_jobs(
     *,
     runner: Callable[..., Any] = subprocess.run,
 ) -> tuple[int, int, int]:
-    """Keep exact jobs, remove stale/duplicate owned jobs, and add missing jobs."""
-
+    """Reconcile only owned webhook jobs and remove the replaced Fullrun jobs."""
     jobs = _list_cron_jobs(environ, runner=runner)
-    argv = _dispatch_argv(environ, plan.cron_plugins)
-    desired = {
-        f"{CRON_NAME_PREFIX}{local_time.label}": local_time
-        for local_time in plan.times
-        if plan.cron_plugins
-    }
-    kept_names: set[str] = set()
-    kept = 0
+    desired = {}
+    for configured in plan.webhooks:
+        hook = configured.hook
+        suffix = hook.key.removeprefix("WEBHOOK_URL").removeprefix("_") or "01"
+        argv = [*ephemeral_command(), "webhook", "--webhook", hook.key]
+        for local_time in configured.times:
+            desired[f"{CRON_NAME_PREFIX}{suffix}-{local_time.label}"] = (local_time, argv)
+    kept_names = set()
     removed = 0
     for job in jobs:
-        name = job.get("name")
-        if not isinstance(name, str) or not name.startswith(CRON_NAME_PREFIX):
+        name = job.get("name", "")
+        if not isinstance(name, str) or not name.startswith((CRON_NAME_PREFIX, LEGACY_CRON_NAME_PREFIX)):
             continue
         job_id = job.get("id")
         if not isinstance(job_id, str) or not job_id:
             raise ConfigurationError(f"owned OpenClaw cron job {name!r} has no id")
-        local_time = desired.get(name)
-        if (
-            local_time is not None
-            and name not in kept_names
-            and _job_matches(job, local_time=local_time, argv=argv)
-        ):
+        target = desired.get(name)
+        if (target and name not in kept_names
+                and _job_matches(job, local_time=target[0], argv=target[1])):
             kept_names.add(name)
-            kept += 1
             continue
         _remove_cron_job(job_id, environ, runner=runner)
         removed += 1
-
     added = 0
-    for name, local_time in desired.items():
-        if name in kept_names:
-            continue
-        _add_cron_job(local_time, argv, environ, runner=runner)
-        added += 1
-    return kept, removed, added
-
-
-def dispatch_plugins(
-    plugins: Sequence[OpenClawPlugin],
-    environ: Mapping[str, str],
-    *,
-    opener: Callable[..., Any] = urlopen,
-) -> tuple[str, ...]:
-    """POST each selected plugin-owned hook through the local authenticated gateway."""
-
-    if not plugins:
-        return ()
-    port = integer(
-        environ,
-        "OPENCLAW_GATEWAY_PORT",
-        default=18_789,
-        maximum=65_535,
-    )
-    token = clean(environ.get("OPENCLAW_GATEWAY_TOKEN"))
-    dispatched: list[str] = []
-    for plugin in plugins:
-        if plugin.hook_path is None:
-            raise ConfigurationError(
-                f"OpenClaw plugin repository {plugin.repository!r} has no "
-                "schedulable HTTP hook"
-            )
-        headers = {"Content-Type": "application/json"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        request = Request(
-            f"http://127.0.0.1:{port}{plugin.hook_path}",
-            data=b"{}",
-            headers=headers,
-            method="POST",
-        )
-        try:
-            response = opener(request, timeout=300)
-            read = getattr(response, "read", None)
-            if callable(read):
-                read()
-            close = getattr(response, "close", None)
-            if callable(close):
-                close()
-        except (HTTPError, URLError, OSError) as exc:
-            raise ConfigurationError(
-                f"OpenClaw plugin hook failed for {plugin.repository!r} "
-                f"at {plugin.hook_path}: {exc}"
-            ) from exc
-        dispatched.append(plugin.repository)
-    return tuple(dispatched)
-
-
-def dispatch_repositories(
-    environ: Mapping[str, str],
-    repository_names: Sequence[str],
-    *,
-    opener: Callable[..., Any] = urlopen,
-) -> tuple[str, ...]:
-    destination = config_path(environ)
-    plugins, _warnings = discover_openclaw_plugins(
-        environ,
-        destination=destination,
-    )
-    selected = select_plugin_hooks(plugins, repository_names)
-    return dispatch_plugins(selected, environ, opener=opener)
+    for name, (local_time, argv) in desired.items():
+        if name not in kept_names:
+            _add_cron_job(local_time, argv, environ, runner=runner, name=name)
+            added += 1
+    return len(kept_names), removed, added
 
 
 def schedule(
     environ: Mapping[str, str],
     *,
     runner: Callable[..., Any] = subprocess.run,
-    opener: Callable[..., Any] = urlopen,
 ) -> ScheduleResult:
-    """Reconcile managed cron jobs, then run explicitly selected init hooks once."""
-
-    if not scheduling_requested(environ):
-        return ScheduleResult(0, 0, 0, ())
-    destination = config_path(environ)
-    plugins, _warnings = discover_openclaw_plugins(
-        environ,
-        destination=destination,
-    )
-    plan = build_schedule_plan(environ, plugins)
-    kept, removed, added = reconcile_cron_jobs(
-        plan,
-        environ,
-        runner=runner,
-    )
-    initialized = dispatch_plugins(plan.init_plugins, environ, opener=opener)
-    return ScheduleResult(kept, removed, added, initialized)
+    """Reconcile native cron jobs, then fire INIT hooks sequentially in group order."""
+    plan = build_schedule_plan(environ)
+    kept, removed, added = reconcile_cron_jobs(plan, environ, runner=runner)
+    initialized = []
+    outputs = []
+    errors = []
+    for configured in plan.webhooks:
+        if not configured.hook.init:
+            continue
+        try:
+            text = dispatch_webhook(configured.hook, environ, runner=runner)
+            initialized.append(configured.hook.key)
+            if text:
+                outputs.append(text)
+        except ConfigurationError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise ConfigurationError("; ".join(errors))
+    return ScheduleResult(kept, removed, added, tuple(initialized), tuple(outputs))

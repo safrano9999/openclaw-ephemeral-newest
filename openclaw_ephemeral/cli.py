@@ -21,9 +21,9 @@ from .environment import (
     openclaw_command,
 )
 from .scheduling import (
-    dispatch_repositories,
+    discover_webhooks,
+    dispatch_webhook,
     ephemeral_command,
-    repository_csv,
     schedule,
     scheduling_requested,
 )
@@ -47,16 +47,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument(
         "mode",
-        choices=("configure", "run", "restart", "schedule", "dispatch"),
+        choices=("configure", "run", "restart", "schedule", "webhook"),
         help=(
             "configure, run or restart the gateway, reconcile schedules, or "
-            "dispatch selected repository hooks"
+            "call one configured webhook"
         ),
     )
     parser.add_argument(
-        "--repos",
+        "--webhook",
         default="",
-        help="comma-separated repository names for dispatch mode",
+        help="URL environment variable of the webhook to call",
     )
     return parser
 
@@ -161,45 +161,26 @@ def main(
     args = _parser().parse_args(argv)
     injected = dict(os.environ if environ is None else environ)
     try:
-        if args.mode == "dispatch":
-            repositories = repository_csv(args.repos, name="--repos")
-            if opener is None:
-                dispatched = dispatch_repositories(injected, repositories)
-            else:
-                dispatched = dispatch_repositories(
-                    injected,
-                    repositories,
-                    opener=opener,
-                )
-            print(
-                "OpenClaw repository hooks dispatched: "
-                f"{', '.join(dispatched) if dispatched else 'none'}",
-                file=stdout,
-            )
+        if args.mode == "webhook":
+            hook = next((hook for hook in discover_webhooks(injected)
+                         if hook.key == args.webhook), None)
+            if hook is None:
+                raise ConfigurationError("--webhook must name a configured WEBHOOK_URL variable")
+            text = dispatch_webhook(hook, injected, runner=runner)
+            if text:
+                print(text, file=stdout)
             return 0
-        if args.repos:
-            raise ConfigurationError("--repos is only valid in dispatch mode")
+        if args.webhook:
+            raise ConfigurationError("--webhook is only valid in webhook mode")
         if args.mode == "schedule":
-            if opener is None:
-                scheduled = schedule(injected, runner=runner)
-            else:
-                scheduled = schedule(injected, runner=runner, opener=opener)
-            print(
-                "OpenClaw cron jobs reconciled: "
-                f"{scheduled.kept_jobs} kept, "
-                f"{scheduled.removed_jobs} removed, "
-                f"{scheduled.added_jobs} added",
-                file=stdout,
-            )
-            print(
-                "OpenClaw init repository hooks dispatched: "
-                + (
-                    ", ".join(scheduled.initialized_repositories)
-                    if scheduled.initialized_repositories
-                    else "none"
-                ),
-                file=stdout,
-            )
+            scheduled = schedule(injected, runner=runner)
+            print("OpenClaw cron jobs reconciled: "
+                  f"{scheduled.kept_jobs} kept, {scheduled.removed_jobs} removed, "
+                  f"{scheduled.added_jobs} added", file=stdout)
+            print("OpenClaw init webhooks dispatched: "
+                  + (", ".join(scheduled.initialized_webhooks) or "none"), file=stdout)
+            for text in scheduled.outputs:
+                print(text, file=stdout)
             return 0
 
         if args.mode == "run":

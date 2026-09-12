@@ -170,7 +170,7 @@ export async function approveDevicePairing(requestId, options) {
 
         _add_cron_job(
             LocalTime(hour=19, minute=0),
-            ["/usr/local/bin/openclaw-ephemeral.py", "dispatch"],
+            ["/usr/local/bin/openclaw-ephemeral.py", "webhook", "--webhook", "WEBHOOK_URL"],
             {},
             runner=runner,
         )
@@ -199,7 +199,7 @@ export async function approveDevicePairing(requestId, options) {
         with self.assertRaisesRegex(ConfigurationError, "cron add timed out"):
             _add_cron_job(
                 LocalTime(hour=7, minute=0),
-                ["/usr/local/bin/openclaw-ephemeral.py", "dispatch"],
+                ["/usr/local/bin/openclaw-ephemeral.py", "webhook", "--webhook", "WEBHOOK_URL"],
                 self.pairing_environment(),
                 runner=runner,
             )

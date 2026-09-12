@@ -1,5 +1,5 @@
 [Unit]
-Description=Integrate final OpenClaw repository schedules
+Description=Configure webhook schedules and fire init hooks in group order
 After=openclaw.service
 After=citadel.service codeanalyst.service
 After=kachelmann-webui.service kachelmann-mcp.service

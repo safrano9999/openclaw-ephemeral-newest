@@ -15,7 +15,7 @@ openclaw-ephemeral.py configure
 openclaw-ephemeral.py run
 openclaw-ephemeral.py restart
 openclaw-ephemeral.py schedule
-openclaw-ephemeral.py dispatch --repos WELCOME,NEXTCLOUD
+openclaw-ephemeral.py webhook --webhook WEBHOOK_URL
 ```
 
 - `configure` writes a fresh configuration and applies the trusted runtime
@@ -26,7 +26,7 @@ openclaw-ephemeral.py dispatch --repos WELCOME,NEXTCLOUD
 - `restart` configures OpenClaw and requests a gateway restart.
 - `schedule` reconciles the runtime-owned OpenClaw cron jobs and then runs the
   selected one-time init hooks.
-- `dispatch` posts to the plugin-owned HTTP hooks of explicit repository names.
+- `webhook` posts to one configured HTTP URL; the cron command contains only its environment variable name.
 
 Every configuration rebuild scans available `openclaw.plugin.json` manifests
 under the conventional `/opt/safrano9999`, global state-extension, and
@@ -189,23 +189,33 @@ Secret values are represented through environment references in the generated
 configuration. The runtime does not serialize resolved credentials into its
 status output.
 
-Repository-hook scheduling uses exactly three variables:
+Generic webhook scheduling uses four optional fields per repeatable group:
 
-```text
-OPENCLAW_CRONTAB_TIME=CET 07:00,CET 19:00
-OPENCLAW_CRONTAB_REPOS=WELCOME,NEXTCLOUD,KACHELMANN
-OPENCLAW_REPOS_START_INIT=WELCOME,KACHELMANN
+```dotenv
+WEBHOOK_URL=http://127.0.0.1:18789/plugins/welcome
+WEBHOOK_BEARER=
+WEBHOOK_TIMES=07:10,13:10,19:10
+WEBHOOK_INIT=false
 ```
 
-`OPENCLAW_CRONTAB_TIME` is interpreted as wall-clock time in
-`Europe/Vienna`; the IANA timezone applies CET/CEST transitions automatically.
-The other two values are CSV lists of repository directory names. Cron jobs use
-native command payloads to call the deterministic `dispatch` mode, without an
-agent/model turn. Unknown repository names and selected plugins without a
-schedulable HTTP hook are configuration errors. When all three variables are
-empty, `schedule` returns immediately. If the local cron CLI first requires
-pairing, `schedule` approves only the pending request matching its own OpenClaw
-device identity and then retries.
+The existing `new`/`skip` setup repeats the fields with `_02`, `_03`, etc.
+An empty URL disables the group. An empty bearer sends no Authorization header.
+An empty time CSV means daily `00:00`. Times use `Europe/Vienna`, including
+CET/CEST transitions; the previous `CET HH:MM` spelling remains accepted.
+Each webhook/time has its own native OpenClaw command cron job, without an LLM
+turn. Secrets are read from the environment when the command runs, not stored
+in the cron payload. OpenClaw manages simultaneous scheduled jobs.
+
+After reconciling cron jobs, the final Ephemeral systemd service fires only
+`WEBHOOK_INIT=true` hooks, strictly in numeric group order, awaiting each response
+before the next. Other hooks still run if one fails; the service reports failure.
+The former repository-wide Fullrun jobs are removed during reconciliation.
+Individual, unrelated cron jobs remain untouched.
+
+Requests are generic HTTP POSTs with a 300-second timeout. Plain response text
+is printed and sent to the configured main Telegram target. Module hooks already
+send their own reports: JSON envelopes containing `delivered` are treated as
+acknowledgements, avoiding duplicate messages. No module URLs are built in.
 
 ## Tests
 
