@@ -27,6 +27,16 @@ OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS_AUTO=1
 #default-preset: dummy/note
 OPENCLAW_MODEL=dummy/note
 
+# Optional fast mode for the selected default model.
+#choices: off on
+#default-preset: off
+OPENCLAW_MODEL_FAST_MODE=off
+
+# Optional thinking level for the selected default model; support depends on the model.
+#choices: off minimal low medium high xhigh adaptive max ultra
+#default-preset: high
+OPENCLAW_MODEL_THINKING=high
+
 #default-preset: 1
 OPENCLAW_NOTE_FULL_MODE=1
 

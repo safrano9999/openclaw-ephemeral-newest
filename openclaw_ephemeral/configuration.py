@@ -502,6 +502,16 @@ def _main_agent_config(
     workspace = workspace_path(environ, destination)
     agent_dir = agent_dir_path(environ, destination)
     tools = {"allow": ["*"], "deny": []}
+    model_params: dict[str, Any] = {}
+    if clean(environ.get("OPENCLAW_MODEL_FAST_MODE")):
+        model_params["fastMode"] = boolean(environ, "OPENCLAW_MODEL_FAST_MODE", default=False)
+    thinking = clean(environ.get("OPENCLAW_MODEL_THINKING")).lower()
+    if thinking:
+        if thinking not in {"off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max", "ultra"}:
+            raise ConfigurationError("OPENCLAW_MODEL_THINKING must be a supported thinking level")
+        model_params["thinking"] = thinking
+    if model_params:
+        model_allowlist.setdefault(primary_model, {})["params"] = model_params
     defaults = {
         "workspace": str(workspace),
         "model": {"primary": primary_model},

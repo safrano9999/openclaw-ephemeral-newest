@@ -55,6 +55,39 @@ def provider(
 
 
 class ConfigBuilderTests(unittest.TestCase):
+    def test_optional_default_model_controls_are_scoped_and_independent(self) -> None:
+        cases = (
+            ({}, {}),
+            ({"OPENCLAW_MODEL_FAST_MODE": "", "OPENCLAW_MODEL_THINKING": " "}, {}),
+            ({"OPENCLAW_MODEL_FAST_MODE": "off", "OPENCLAW_MODEL_THINKING": "high"}, {"fastMode": False, "thinking": "high"}),
+            ({"OPENCLAW_MODEL_FAST_MODE": "on", "OPENCLAW_MODEL_THINKING": "low"}, {"fastMode": True, "thinking": "low"}),
+            ({"OPENCLAW_MODEL_FAST_MODE": "on"}, {"fastMode": True}),
+            ({"OPENCLAW_MODEL_THINKING": "max"}, {"thinking": "max"}),
+        )
+        for primary in ("openai/gpt-5.6-luna", "litellm/model-a"):
+            for injected, expected in cases:
+                with self.subTest(primary=primary, injected=injected), tempfile.TemporaryDirectory() as raw:
+                    config, _, _ = build_config(
+                        {"HOME": raw, "OPENCLAW_MODEL": primary, **injected},
+                        destination=Path(raw) / "openclaw.json",
+                        native_models=("openai/gpt-6-astra",),
+                        openai_v1_providers=(provider(),),
+                    )
+                defaults = config["agents"]["defaults"]
+                self.assertEqual(defaults["models"][primary], {"params": expected} if expected else {})
+                self.assertEqual(defaults["models"]["openai/gpt-6-astra"], {})
+                self.assertNotIn("fastModeDefault", defaults)
+                self.assertNotIn("thinkingDefault", defaults)
+
+    def test_default_model_controls_reject_invalid_values(self) -> None:
+        for key, value in (("OPENCLAW_MODEL_FAST_MODE", "maybe"), ("OPENCLAW_MODEL_THINKING", "basic")):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as raw:
+                with self.assertRaises(ConfigurationError):
+                    build_config(
+                        {"HOME": raw, "OPENCLAW_MODEL": "openai/gpt-5.6-luna", key: value},
+                        destination=Path(raw) / "openclaw.json",
+                    )
+
     def test_optional_repeated_mcp_servers_are_global_and_unrestricted(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             config, _, _ = build_config(

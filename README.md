@@ -94,6 +94,8 @@ Recognized model variables include:
 
 ```text
 OPENCLAW_MODEL
+OPENCLAW_MODEL_FAST_MODE
+OPENCLAW_MODEL_THINKING
 OPENCLAW_OPENAI_V1_DEFAULT_LLM
 OPENAI_V1_PROVIDER
 OPENAI_V1_URL
@@ -107,6 +109,11 @@ OPENAI_V1_MODELS
 
 Numbered OpenAI-v1 groups use `_2`, `_3`, and subsequent suffixes. Native
 OpenClaw providers continue to use their established `*_API_KEY` variables.
+The optional `OPENCLAW_MODEL_FAST_MODE` and `OPENCLAW_MODEL_THINKING` settings
+apply only to the selected default model through its `params.fastMode` and
+`params.thinking`. Their setup presets are `off` and `high`; unset or blank
+values leave the corresponding parameter absent. Other models keep their own
+defaults, and explicit session settings retain OpenClaw's normal precedence.
 `OPENAI_V1_DISCOVERY_HEADERS` is an optional JSON object for endpoint-specific
 catalog headers; it cannot replace the generated bearer authorization.
 `OPENAI_V1_MODELS` accepts a JSON array or comma-separated model ids and is
