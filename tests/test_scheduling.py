@@ -232,7 +232,7 @@ export async function approveDevicePairing(requestId, options) {
             ROOT / "image/runtime/etc/systemd/system/openclaw-config.service"
         ).read_text(encoding="utf-8")
         self.assertIn("Requires=persistainer.service", unit)
-        self.assertIn("fedora44-ai-init-hooks.service", unit)
+        self.assertIn("fedora45-ai-init-hooks.service", unit)
         self.assertIn("tailscale-up.service", unit)
         self.assertIn("Before=openclaw.service", unit)
 

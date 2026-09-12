@@ -1,8 +1,8 @@
 [Unit]
 Description=Rebuild ephemeral OpenClaw configuration
 Requires=persistainer.service
-Wants=network-online.target fedora44-ai-init-hooks.service tailscale-up.service
-After=network-online.target persistainer.service fedora44-ai-init-hooks.service tailscale-up.service
+Wants=network-online.target fedora45-ai-init-hooks.service tailscale-up.service
+After=network-online.target persistainer.service fedora45-ai-init-hooks.service tailscale-up.service
 Before=openclaw.service
 
 [Service]
